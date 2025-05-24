@@ -1,0 +1,76 @@
+package handlers
+
+import (
+    "bytes"
+    "image/color"
+    "image/png"
+    "net/http"
+
+    "github.com/tdewolff/canvas"
+    "github.com/tdewolff/canvas/renderers/rasterizer"
+    "golang.org/x/image/font/gofont/goregular"
+)
+
+func TopologyHandler(w http.ResponseWriter, r *http.Request) {
+    // Create a font family and load Go Regular TTF
+    ff := canvas.NewFontFamily("GoRegular")
+    if err := ff.LoadFont(goregular.TTF, 0, canvas.FontRegular); err != nil {
+        http.Error(w, "Failed to load font", http.StatusInternalServerError)
+        return
+    }
+    face := ff.Face(60.0, canvas.White, canvas.FontRegular, canvas.FontNormal) // 60pt text
+
+    // Create a larger 1600x900 canvas
+    c := canvas.New(1600, 900)
+    ctx := canvas.NewContext(c)
+
+    // Background: Dark gray
+    ctx.SetFillColor(canvas.Hex("#1a1a1a"))
+    ctx.DrawPath(0, 0, canvas.Rectangle(1600, 900))
+
+    // Python Code Box (520x292.5)
+    ctx.SetFillColor(canvas.Hex("#333333"))
+    ctx.DrawPath(100, 100, canvas.Rectangle(520, 292.5))
+    ctx.SetFillColor(canvas.Hex("#00ffcc"))
+    ctx.DrawText(120, 350, canvas.NewTextBox(face, "def process_data():\n    msg = kafka.consume()\n    print(f'Got: {msg}')", 480, 252.5, canvas.Left, canvas.Top, 1.5, 0))
+
+    // Go Code Box (520x292.5)
+    ctx.SetFillColor(canvas.Hex("#333333"))
+    ctx.DrawPath(700, 100, canvas.Rectangle(520, 292.5))
+    ctx.SetFillColor(canvas.Hex("#ff007a"))
+    ctx.DrawText(720, 350, canvas.NewTextBox(face, "func main() {\n    http.Handle(\"/\", handler)\n    log.Fatal(http.ListenAndServe(\":8080\", nil))\n}", 480, 252.5, canvas.Left, canvas.Top, 1.5, 0))
+
+    // Kubernetes Pods (larger circles)
+    ctx.SetFillColor(color.RGBA{0, 255, 204, 50})
+    ctx.DrawPath(300, 600, canvas.Circle(80))
+    ctx.SetFillColor(color.RGBA{255, 0, 122, 50})
+    ctx.DrawPath(800, 600, canvas.Circle(80))
+    ctx.SetFillColor(canvas.White)
+    ctx.DrawText(260, 610, canvas.NewTextLine(face, "Python Pod", canvas.Center))
+    ctx.DrawText(760, 610, canvas.NewTextLine(face, "Go Pod", canvas.Center))
+
+    // Metrics Box (520x292.5)
+    ctx.SetFillColor(canvas.Hex("#444444"))
+    ctx.DrawPath(1300, 100, canvas.Rectangle(520, 292.5))
+    ctx.SetFillColor(canvas.White)
+    ctx.DrawText(1320, 350, canvas.NewTextBox(face, "Metrics:\nReq/s: 120\nLatency: 50ms\nErrors: 2", 480, 252.5, canvas.Left, canvas.Top, 1.5, 0))
+
+    // Kafka Box (520x97.5)
+    ctx.SetFillColor(canvas.Hex("#ffcc00"))
+    ctx.DrawPath(100, 700, canvas.Rectangle(520, 97.5))
+    ctx.SetFillColor(canvas.Black)
+    ctx.DrawText(120, 780, canvas.NewTextBox(face, "Kafka: test-topic\nP0: 42\nP1: 17", 480, 77.5, canvas.Left, canvas.Top, 1.5, 0))
+
+    // Convert to PNG
+    img := rasterizer.Draw(c, canvas.DPMM(1.0), nil)
+    var buf bytes.Buffer
+    err := png.Encode(&buf, img)
+    if err != nil {
+        http.Error(w, "Failed to encode image", http.StatusInternalServerError)
+        return
+    }
+
+    // Serve PNG
+    w.Header().Set("Content-Type", "image/png")
+    w.Write(buf.Bytes())
+}
