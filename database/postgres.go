@@ -36,6 +36,11 @@ func (repo *PostgresRepository) InsertPost(ctx context.Context, post *models.Pos
 	return err
 }
 
+func (repo *PostgresRepository) InsertHotel(ctx context.Context, hotel *models.Hotel) error {
+	_, err := repo.db.ExecContext(ctx, "INSERT INTO hotels (id, name, address, city, region, country, description, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", hotel.Id, hotel.Name, hotel.Address, hotel.City, hotel.Region, hotel.Country, hotel.Description, hotel.CreatedAt, hotel.UpdatedAt)
+	return err
+}
+
 func (repo *PostgresRepository) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	rows, err := repo.db.QueryContext(ctx, "SELECT id, email FROM users WHERE id = $1", id)
 	if err != nil {
@@ -81,6 +86,30 @@ func (repo *PostgresRepository) GetPostByID(ctx context.Context, id string) (*mo
 	}
 	return &post, nil
 }
+
+func (repo *PostgresRepository) GetHotelByN(ctx context.Context, id string) (*models.Post, error) {
+	rows, err := repo.db.QueryContext(ctx, "SELECT id, post_content, user_id, created_at FROM posts WHERE id = $1", id)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+	var post = models.Post{}
+	for rows.Next() {
+		if err = rows.Scan(&post.Id, &post.PostContent, &post.UserId, &post.CreatedAt); err == nil {
+			return &post, nil
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return &post, nil
+}
+
 
 func (repo *PostgresRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	rows, err := repo.db.QueryContext(ctx, "SELECT id, email, password FROM users WHERE email = $1", email)

@@ -34,6 +34,8 @@ func main() {
 	PORT := os.Getenv("PORT")
 	DATABASE_URL := os.Getenv("DATABASE_URL")
 	JWT_SECRET := os.Getenv("JWT_SECRET")
+	AMD := os.Getenv("AMD")
+	AMS := os.Getenv("AMS")
 
 	s, err := server.NewServer(context.Background(), &server.Config{
 		Port:        PORT,
