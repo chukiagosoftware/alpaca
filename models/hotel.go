@@ -28,28 +28,34 @@ type HotelsListResponse struct {
 	Meta HotelsListMeta `json:"meta"`
 }
 
-// HotelAPIItem represents a single hotel item as returned by the API.
-type HotelApiAmadeus struct {
+// HotelAPIItem represents a single hotel item as returned by the Amadeus Hotel List API.
+type HotelAPIItem struct {
 	gorm.Model
-	ChainCode string         `json:"chainCode"`
-	IATACode  string         `json:"iataCode"`
-	DupeID    int64          `json:"dupeId"`
-	Name      string         `json:"name"`
-	HotelID   string         `json:"hotelId"`
-	GeoCode   datatypes.JSON `json:"geoCode"`
-	Address   datatypes.JSON `json:"address"`
-	Distance  datatypes.JSON `json:"distance"`
+	Type       string         `json:"type" gorm:"column:type"`
+	HotelID    string         `json:"hotelId" gorm:"column:hotel_id;index"`
+	ChainCode  string         `json:"chainCode" gorm:"column:chain_code"`
+	DupeID     int64          `json:"dupeId" gorm:"column:dupe_id"`
+	Name       string         `json:"name" gorm:"column:name"`
+	IATACode   string         `json:"iataCode" gorm:"column:iata_code"`
+	Address    datatypes.JSON `json:"address" gorm:"column:address"`
+	GeoCode    datatypes.JSON `json:"geoCode" gorm:"column:geo_code"`
+	Distance   datatypes.JSON `json:"distance" gorm:"column:distance"`
+	LastUpdate string         `json:"lastUpdate" gorm:"column:last_update"`
+}
+
+// HotelAddress represents the address details of a hotel.
+type HotelAddress struct {
+	Lines       []string `json:"lines"`
+	PostalCode  string   `json:"postalCode"`
+	CityName    string   `json:"cityName"`
+	CountryCode string   `json:"countryCode"`
+	StateCode   string   `json:"stateCode,omitempty"`
 }
 
 // HotelGeoCode represents the latitude and longitude of a hotel.
 type HotelGeoCode struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
-}
-
-// HotelAddress represents the address details of a hotel.
-type HotelAddress struct {
-	CountryCode string `json:"countryCode"`
 }
 
 // HotelDistance represents the distance information of a hotel.
@@ -62,8 +68,6 @@ type HotelDistance struct {
 type HotelsListMeta struct {
 	Count int                `json:"count"`
 	Links HotelsListMetaLink `json:"links"`
-	Next  string             `json:"next,omitempty"` // Optional field for next page link
-	Last  string             `json:"last,omitempty"` // Optional field for previous page link
 }
 
 // HotelsListMetaLink captures the links object in the meta field.
@@ -183,5 +187,4 @@ type RatingsAmadeus struct {
 	Internet         int    `json:"internet"`
 	PointsOfInterest int    `json:"pointsOfInterest"`
 	Staff            int    `json:"staff"`
-	
 }

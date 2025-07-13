@@ -6,9 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edamsoft-sre/alpaca/events"
 	"github.com/edamsoft-sre/alpaca/models"
-	"github.com/edamsoft-sre/alpaca/repository"
 	"github.com/edamsoft-sre/alpaca/server"
 	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/mux"
@@ -51,20 +49,15 @@ func InsertPostHandler(s server.Server) http.HandlerFunc {
 				return
 			}
 			post := models.Post{
-				Id:          id.String(),
 				PostContent: postRequest.PostContent,
+				Id:          id.String(),
 				UserId:      claims.UserId,
 			}
-			err = repository.InsertPost(r.Context(), &post)
+			err = s.PostService().Create(r.Context(), &post)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			var postMessage = models.WebsocketMessage{
-				Type:    events.POST_CREATED,
-				Payload: post,
-			}
-			s.Hub().Broadcast(postMessage, nil)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(PostResponse{
 				Id:          post.Id,
@@ -75,20 +68,18 @@ func InsertPostHandler(s server.Server) http.HandlerFunc {
 			return
 		}
 	}
-
 }
 
 func GetPostByIDHandler(s server.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
-		post, err := repository.GetPostByID(r.Context(), params["postId"])
+		post, err := s.PostService().GetByID(r.Context(), params["postId"])
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(post)
-
 	}
 }
 
@@ -104,14 +95,14 @@ func DeletePostByIdHandler(s server.Server) http.HandlerFunc {
 			return
 		}
 		if claims, ok := token.Claims.(*models.AppClaims); ok && token.Valid {
-			err = repository.DeletePost(r.Context(), params["postId"], claims.UserId)
+			err := s.PostService().Delete(r.Context(), params["postId"], claims.UserId)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(PostDeletedResponse{
-				Message: "Post deleted",
+				Message: "Post Deleted",
 			})
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -142,7 +133,7 @@ func UpdatePostByIdHandler(s server.Server) http.HandlerFunc {
 				PostContent: postRequest.PostContent,
 				Id:          params["postId"],
 			}
-			err = repository.UpdatePost(r.Context(), &post, claims.UserId)
+			err = s.PostService().Update(r.Context(), &post, claims.UserId)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -170,7 +161,7 @@ func ListPostHandler(s server.Server) http.HandlerFunc {
 				return
 			}
 		}
-		posts, err := repository.ListPost(r.Context(), page)
+		posts, err := s.PostService().List(r.Context(), page)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

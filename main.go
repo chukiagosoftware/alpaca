@@ -1,30 +1,25 @@
 package main
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/edamsoft-sre/alpaca/handlers"
-	"github.com/edamsoft-sre/alpaca/server"
 	"github.com/edamsoft-sre/alpaca/middleware"
+	"github.com/edamsoft-sre/alpaca/server"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-
-
 )
 
-
-
 type PageData struct {
-    PythonCode string
-    GoCode     string
-    Pods       []string
-    KafkaTopic string
+	PythonCode string
+	GoCode     string
+	Pods       []string
+	KafkaTopic string
 }
-
 
 func main() {
 	err := godotenv.Load(".env")
@@ -34,8 +29,6 @@ func main() {
 	PORT := os.Getenv("PORT")
 	DATABASE_URL := os.Getenv("DATABASE_URL")
 	JWT_SECRET := os.Getenv("JWT_SECRET")
-	AMD := os.Getenv("AMD")
-	AMS := os.Getenv("AMS")
 
 	s, err := server.NewServer(context.Background(), &server.Config{
 		Port:        PORT,
@@ -61,7 +54,7 @@ func BindRoutes(s server.Server, r *mux.Router) {
 	r.HandleFunc("/", handlers.HomeHandler(s)).Methods(http.MethodGet)
 
 	r.HandleFunc("/auth/{provider}/login", handlers.GothLoginHandler)
-	r.HandleFunc("/auth/{provider}/callback", handlers.GothCallbackHandler)
+	r.HandleFunc("/auth/{provider}/callback", handlers.GothCallbackHandler(s))
 
 	r.HandleFunc("/api/v1/signup", handlers.SignUpHandler(s)).Methods(http.MethodPost)
 	r.HandleFunc("/api/v1/login", handlers.LoginHandler(s)).Methods(http.MethodPost)
@@ -73,11 +66,14 @@ func BindRoutes(s server.Server, r *mux.Router) {
 	r.HandleFunc("/api/v1/posts/{postId}", handlers.GetPostByIDHandler(s)).Methods(http.MethodGet)
 	r.HandleFunc("/api/v1/posts", handlers.ListPostHandler(s)).Methods(http.MethodGet)
 
+	// Hotel routes (public - no auth required)
+	r.HandleFunc("/api/v1/hotels", handlers.ListHotelsHandler(s)).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/hotels/{hotelId}", handlers.GetHotelByIDHandler(s)).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/hotels/city/{cityName}", handlers.GetHotelsByCityHandler(s)).Methods(http.MethodGet)
 
 	r.HandleFunc("/ws", s.Hub().HandleWebSocket)
 
 	r.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
-    r.HandleFunc("/topology", handlers.TopologyHandler).Methods("GET")
-
+	r.HandleFunc("/topology", handlers.TopologyHandler).Methods("GET")
 
 }

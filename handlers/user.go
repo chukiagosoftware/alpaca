@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/edamsoft-sre/alpaca/models"
-	"github.com/edamsoft-sre/alpaca/repository"
 	"github.com/edamsoft-sre/alpaca/server"
 	"github.com/golang-jwt/jwt"
 	"github.com/segmentio/ksuid"
@@ -55,7 +54,7 @@ func SignUpHandler(s server.Server) http.HandlerFunc {
 			Password: string(hashedPassword),
 			Id:       id.String(),
 		}
-		err = repository.InsertUser(r.Context(), &user)
+		err = s.UserService().Create(r.Context(), &user)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -77,7 +76,7 @@ func LoginHandler(s server.Server) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		user, err := repository.GetUserByEmail(r.Context(), request.Email)
+		user, err := s.UserService().GetByEmail(r.Context(), request.Email)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -121,7 +120,7 @@ func MeHandler(s server.Server) http.HandlerFunc {
 			return
 		}
 		if claims, ok := token.Claims.(*models.AppClaims); ok && token.Valid {
-			user, err := repository.GetUserByID(r.Context(), claims.UserId)
+			user, err := s.UserService().GetByID(r.Context(), claims.UserId)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
