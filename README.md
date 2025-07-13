@@ -1,17 +1,17 @@
 # Alpaca
 
-A Go HTTP frontend with Postgres, SQLite or other cloud databases. API to query Hotel data. Further will use analatics for sentiment analysis and GPT to query accomodations based on additonal criteria or user input.
+A Go HTTP frontend with Postgres, SQLite or other cloud databases. API to query Hotel data. Further will use analytics for sentiment analysis and GPT to query accommodations based on additional criteria or user input.
 
 Based on Platzi's Advanced Go Course and built using Cursor AI, OpenAI ChatGPT and Twitter's Grok. Most of the code at this point is AI generated and improved upon by prompt. Testing is also automatic and further tests will be added.
 
 ## Exploration
 
-LLM choice and library or framework. Retrieval augmented genration RAQ finetuning for this and other datasets.
+LLM choice and library or framework. Retrieval Augmented Generation (RAG) fine-tuning for this and other datasets.
 
 
 ## 🏨 Hotel Data System
 
-### Overview
+### API OVERVIEW
 Alpaca now includes a comprehensive hotel data management system that fetches and stores detailed hotel information from multiple Amadeus APIs:
 
 - **Hotel List API**: Basic hotel information by city
