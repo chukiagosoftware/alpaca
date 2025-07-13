@@ -1,8 +1,6 @@
 package models
 
 import (
-	"time"
-
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -43,27 +41,6 @@ type HotelAPIItem struct {
 	LastUpdate string         `json:"lastUpdate" gorm:"column:last_update"`
 }
 
-// HotelAddress represents the address details of a hotel.
-type HotelAddress struct {
-	Lines       []string `json:"lines"`
-	PostalCode  string   `json:"postalCode"`
-	CityName    string   `json:"cityName"`
-	CountryCode string   `json:"countryCode"`
-	StateCode   string   `json:"stateCode,omitempty"`
-}
-
-// HotelGeoCode represents the latitude and longitude of a hotel.
-type HotelGeoCode struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-}
-
-// HotelDistance represents the distance information of a hotel.
-type HotelDistance struct {
-	Value float64 `json:"value"`
-	Unit  string  `json:"unit"`
-}
-
 // HotelsListMeta captures pagination and other metadata from the API response.
 type HotelsListMeta struct {
 	Count int                `json:"count"`
@@ -75,116 +52,112 @@ type HotelsListMetaLink struct {
 	Self string `json:"self"`
 }
 
-// ExternalLink represents an external link related to a hotel.
-type ExternalLink struct {
-	Name        string    `json:"name"`
-	URL         string    `json:"url"`
-	Icon        string    `json:"icon"`
-	Description string    `json:"description"`
-	Category    string    `json:"category"`
-	Tags        []string  `json:"tags"`
-	Rating      int64     `json:"rating"`
-	HotelId     int64     `json:"hotelId"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+// ===== HOTEL SEARCH API MODELS =====
+
+// HotelSearchResponse represents the response from the Hotel Search API
+type HotelSearchResponse struct {
+	Data []HotelSearchData `json:"data"`
+	Meta HotelSearchMeta   `json:"meta"`
 }
 
-// Hotel represents a hotel with its details, external links, and reviews.
-type Hotel struct {
-	ChainCode       string         `json:"chainCode"`
-	IATACode        string         `json:"iataCode"`
-	DupeID          int64          `json:"dupeId"`
-	HotelID         string         `json:"hotelId"`
-	GeoCode         datatypes.JSON `json:"geoCode"`
-	Distance        int64          `json:"distance"`
-	Address         string         `json:"address"`
-	City            string         `json:"city"`
-	Region          string         `json:"region"`
-	Country         string         `json:"country"`
-	Name            string         `json:"name"`
-	Description     string         `json:"description"`
-	Warnings        []string       `json:"warnings"`
-	Bonus           []string       `json:"bonus"`
-	Quiet           bool           `json:"quiet"`
-	ExternalLinkIds []int64        `json:"externalLinkIds"`
-	Tags            []string       `json:"tags"`
-	PriceRange      string         `json:"price_range"`
+// HotelSearchData represents detailed hotel information from the search API
+type HotelSearchData struct {
+	gorm.Model
+	Type           string         `json:"type" gorm:"column:type"`
+	HotelID        string         `json:"hotelId" gorm:"column:hotel_id;index"`
+	ChainCode      string         `json:"chainCode" gorm:"column:chain_code"`
+	DupeID         int64          `json:"dupeId" gorm:"column:dupe_id"`
+	Name           string         `json:"name" gorm:"column:name"`
+	Rating         int            `json:"rating" gorm:"column:rating"`
+	OfficialRating int            `json:"officialRating" gorm:"column:official_rating"`
+	Description    datatypes.JSON `json:"description" gorm:"column:description"`
+	Media          datatypes.JSON `json:"media" gorm:"column:media"`
+	Amenities      datatypes.JSON `json:"amenities" gorm:"column:amenities"`
+	Address        datatypes.JSON `json:"address" gorm:"column:address"`
+	Contact        datatypes.JSON `json:"contact" gorm:"column:contact"`
+	Policies       datatypes.JSON `json:"policies" gorm:"column:policies"`
+	Available      bool           `json:"available" gorm:"column:available"`
+	Offers         datatypes.JSON `json:"offers" gorm:"column:offers"`
+	Self           string         `json:"self" gorm:"column:self"`
+	HotelDistance  datatypes.JSON `json:"hotelDistance" gorm:"column:hotel_distance"`
+	LastUpdate     string         `json:"lastUpdate" gorm:"column:last_update"`
 }
 
-// Review represents a review for a hotel.
-type Review struct {
-	HotelId   int64  `json:"hotelId"`
-	Rating    int64  `json:"rating"`
-	Comment   string `json:"comment"`
-	Commenter string `json:"commenter"`
+// HotelSearchMeta represents metadata for the search response
+type HotelSearchMeta struct {
+	Count    int                  `json:"count"`
+	Links    HotelSearchMetaLinks `json:"links"`
+	Warnings []HotelSearchWarning `json:"warnings,omitempty"`
 }
 
-// HotelSentimentResponse represents the full response from the sentiment API.
-type HotelSentimentResponse struct {
-	Data     []HotelSentimentData    `json:"data"`
-	Meta     HotelSentimentMeta      `json:"meta"`
-	Warnings []HotelSentimentWarning `json:"warnings"`
-}
-
-type HotelSentimentData struct {
-	Type            string                   `json:"type"`
-	NumberOfReviews int                      `json:"numberOfReviews"`
-	NumberOfRatings int                      `json:"numberOfRatings"`
-	HotelID         string                   `json:"hotelId"`
-	OverallRating   int                      `json:"overallRating"`
-	Sentiments      HotelSentimentCategories `json:"sentiments"`
-}
-
-type HotelSentimentCategories struct {
-	SleepQuality     int `json:"sleepQuality,omitempty"`
-	Service          int `json:"service,omitempty"`
-	Facilities       int `json:"facilities,omitempty"`
-	RoomComforts     int `json:"roomComforts,omitempty"`
-	ValueForMoney    int `json:"valueForMoney,omitempty"`
-	Catering         int `json:"catering,omitempty"`
-	Location         int `json:"location,omitempty"`
-	Internet         int `json:"internet,omitempty"`
-	PointsOfInterest int `json:"pointsOfInterest,omitempty"`
-	Staff            int `json:"staff,omitempty"`
-}
-
-type HotelSentimentMeta struct {
-	Count int                     `json:"count"`
-	Links HotelSentimentMetaLinks `json:"links"`
-}
-
-type HotelSentimentMetaLinks struct {
+// HotelSearchMetaLinks represents links in the search metadata
+type HotelSearchMetaLinks struct {
 	Self string `json:"self"`
 }
 
-type HotelSentimentWarning struct {
-	Code   int                         `json:"code"`
-	Title  string                      `json:"title"`
-	Detail string                      `json:"detail"`
-	Source HotelSentimentWarningSource `json:"source"`
+// HotelSearchWarning represents warnings in the search response
+type HotelSearchWarning struct {
+	Code   int    `json:"code"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
 }
 
-type HotelSentimentWarningSource struct {
+// ===== HOTEL RATINGS API MODELS =====
+
+// HotelRatingsResponse represents the response from the Hotel Ratings API
+type HotelRatingsResponse struct {
+	Data     []HotelRatingsData    `json:"data"`
+	Meta     HotelRatingsMeta      `json:"meta"`
+	Warnings []HotelRatingsWarning `json:"warnings,omitempty"`
+}
+
+// HotelRatingsData represents detailed ratings information
+type HotelRatingsData struct {
+	gorm.Model
+	Type            string                 `json:"type" gorm:"column:type"`
+	HotelID         string                 `json:"hotelId" gorm:"column:hotel_id;index"`
+	NumberOfReviews int                    `json:"numberOfReviews" gorm:"column:number_of_reviews"`
+	NumberOfRatings int                    `json:"numberOfRatings" gorm:"column:number_of_ratings"`
+	OverallRating   int                    `json:"overallRating" gorm:"column:overall_rating"`
+	Sentiments      HotelRatingsSentiments `json:"sentiments" gorm:"column:sentiments"`
+	LastUpdate      string                 `json:"lastUpdate" gorm:"column:last_update"`
+}
+
+// HotelRatingsSentiments represents the sentiment categories
+type HotelRatingsSentiments struct {
+	SleepQuality     int `json:"sleepQuality,omitempty" gorm:"column:sleep_quality"`
+	Service          int `json:"service,omitempty" gorm:"column:service"`
+	Facilities       int `json:"facilities,omitempty" gorm:"column:facilities"`
+	RoomComforts     int `json:"roomComforts,omitempty" gorm:"column:room_comforts"`
+	ValueForMoney    int `json:"valueForMoney,omitempty" gorm:"column:value_for_money"`
+	Catering         int `json:"catering,omitempty" gorm:"column:catering"`
+	Location         int `json:"location,omitempty" gorm:"column:location"`
+	Internet         int `json:"internet,omitempty" gorm:"column:internet"`
+	PointsOfInterest int `json:"pointsOfInterest,omitempty" gorm:"column:points_of_interest"`
+	Staff            int `json:"staff,omitempty" gorm:"column:staff"`
+}
+
+// HotelRatingsMeta represents metadata for the ratings response
+type HotelRatingsMeta struct {
+	Count int                   `json:"count"`
+	Links HotelRatingsMetaLinks `json:"links"`
+}
+
+// HotelRatingsMetaLinks represents links in the ratings metadata
+type HotelRatingsMetaLinks struct {
+	Self string `json:"self"`
+}
+
+// HotelRatingsWarning represents warnings in the ratings response
+type HotelRatingsWarning struct {
+	Code   int                       `json:"code"`
+	Title  string                    `json:"title"`
+	Detail string                    `json:"detail"`
+	Source HotelRatingsWarningSource `json:"source"`
+}
+
+// HotelRatingsWarningSource represents the source of a warning
+type HotelRatingsWarningSource struct {
 	Parameter string `json:"parameter"`
 	Pointer   string `json:"pointer"`
-}
-
-// RatingsAmadeus represents the sentiment data for storage in the ratings_amadeus table.
-type RatingsAmadeus struct {
-	gorm.Model
-	HotelID          string `json:"hotelId" gorm:"index"`
-	Type             string `json:"type"`
-	NumberOfReviews  int    `json:"numberOfReviews"`
-	NumberOfRatings  int    `json:"numberOfRatings"`
-	OverallRating    int    `json:"overallRating"`
-	SleepQuality     int    `json:"sleepQuality"`
-	Service          int    `json:"service"`
-	Facilities       int    `json:"facilities"`
-	RoomComforts     int    `json:"roomComforts"`
-	ValueForMoney    int    `json:"valueForMoney"`
-	Catering         int    `json:"catering"`
-	Location         int    `json:"location"`
-	Internet         int    `json:"internet"`
-	PointsOfInterest int    `json:"pointsOfInterest"`
-	Staff            int    `json:"staff"`
 }

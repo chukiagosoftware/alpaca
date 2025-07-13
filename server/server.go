@@ -79,7 +79,7 @@ func NewServer(ctx context.Context, config *Config) (*Broker, error) {
 	}
 
 	// Auto migrate models
-	err = db.AutoMigrate(&models.User{}, &models.Post{}, &models.HotelAPIItem{}, &models.RatingsAmadeus{})
+	err = db.AutoMigrate(&models.User{}, &models.Post{}, &models.HotelAPIItem{}, &models.HotelSearchData{}, &models.HotelRatingsData{})
 	if err != nil {
 		return nil, err
 	}
