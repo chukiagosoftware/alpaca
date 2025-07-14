@@ -29,11 +29,40 @@ func (s *HotelService) GetByID(ctx context.Context, id string) (*models.HotelAPI
 	return &hotel, nil
 }
 
+func (s *HotelService) GetByIDWithDetails(ctx context.Context, id string) (*models.HotelAPIItem, error) {
+	var hotel models.HotelAPIItem
+	err := s.db.WithContext(ctx).
+		Preload("SearchData").
+		Preload("RatingsData").
+		Where("hotel_id = ?", id).
+		First(&hotel).Error
+	if err != nil {
+		return nil, err
+	}
+	return &hotel, nil
+}
+
 func (s *HotelService) List(ctx context.Context, page uint64, limit uint64) ([]*models.HotelAPIItem, error) {
 	var hotels []*models.HotelAPIItem
 	offset := int(page) * int(limit)
 
 	err := s.db.WithContext(ctx).Limit(int(limit)).Offset(offset).Find(&hotels).Error
+	if err != nil {
+		return nil, err
+	}
+	return hotels, nil
+}
+
+func (s *HotelService) ListWithDetails(ctx context.Context, page uint64, limit uint64) ([]*models.HotelAPIItem, error) {
+	var hotels []*models.HotelAPIItem
+	offset := int(page) * int(limit)
+
+	err := s.db.WithContext(ctx).
+		Preload("SearchData").
+		Preload("RatingsData").
+		Limit(int(limit)).
+		Offset(offset).
+		Find(&hotels).Error
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +82,38 @@ func (s *HotelService) GetByCity(ctx context.Context, cityName string, page uint
 	} else {
 		// For SQLite, use LIKE on the JSON string
 		err := s.db.WithContext(ctx).Where("address LIKE ?", "%"+cityName+"%").Limit(int(limit)).Offset(offset).Find(&hotels).Error
+		if err != nil {
+			return nil, err
+		}
+	}
+	return hotels, nil
+}
+
+func (s *HotelService) GetByCityWithDetails(ctx context.Context, cityName string, page uint64, limit uint64) ([]*models.HotelAPIItem, error) {
+	var hotels []*models.HotelAPIItem
+	offset := int(page) * int(limit)
+
+	// For PostgreSQL, use JSON operators
+	if s.db.Dialector.Name() == "postgres" {
+		err := s.db.WithContext(ctx).
+			Preload("SearchData").
+			Preload("RatingsData").
+			Where("address->>'cityName' ILIKE ?", "%"+cityName+"%").
+			Limit(int(limit)).
+			Offset(offset).
+			Find(&hotels).Error
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// For SQLite, use LIKE on the JSON string
+		err := s.db.WithContext(ctx).
+			Preload("SearchData").
+			Preload("RatingsData").
+			Where("address LIKE ?", "%"+cityName+"%").
+			Limit(int(limit)).
+			Offset(offset).
+			Find(&hotels).Error
 		if err != nil {
 			return nil, err
 		}
@@ -80,7 +141,10 @@ func (s *HotelService) CreateSearchData(ctx context.Context, searchData *models.
 
 func (s *HotelService) GetSearchDataByHotelID(ctx context.Context, hotelID string) (*models.HotelSearchData, error) {
 	var searchData models.HotelSearchData
-	err := s.db.WithContext(ctx).Where("hotel_id = ?", hotelID).First(&searchData).Error
+	err := s.db.WithContext(ctx).
+		Preload("Hotel").
+		Where("hotel_id = ?", hotelID).
+		First(&searchData).Error
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +155,19 @@ func (s *HotelService) UpdateSearchData(ctx context.Context, searchData *models.
 	return s.db.WithContext(ctx).Save(searchData).Error
 }
 
+func (s *HotelService) UpsertSearchData(ctx context.Context, searchData *models.HotelSearchData) error {
+	// Try to update first, if not found then create
+	result := s.db.WithContext(ctx).Where("hotel_id = ?", searchData.HotelID).Updates(searchData)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		// No rows were updated, so create new record
+		return s.db.WithContext(ctx).Create(searchData).Error
+	}
+	return nil
+}
+
 // HotelRatingsData methods
 func (s *HotelService) CreateRatingsData(ctx context.Context, ratingsData *models.HotelRatingsData) error {
 	return s.db.WithContext(ctx).Create(ratingsData).Error
@@ -98,7 +175,10 @@ func (s *HotelService) CreateRatingsData(ctx context.Context, ratingsData *model
 
 func (s *HotelService) GetRatingsDataByHotelID(ctx context.Context, hotelID string) (*models.HotelRatingsData, error) {
 	var ratingsData models.HotelRatingsData
-	err := s.db.WithContext(ctx).Where("hotel_id = ?", hotelID).First(&ratingsData).Error
+	err := s.db.WithContext(ctx).
+		Preload("Hotel").
+		Where("hotel_id = ?", hotelID).
+		First(&ratingsData).Error
 	if err != nil {
 		return nil, err
 	}
@@ -109,22 +189,98 @@ func (s *HotelService) UpdateRatingsData(ctx context.Context, ratingsData *model
 	return s.db.WithContext(ctx).Save(ratingsData).Error
 }
 
+func (s *HotelService) UpsertRatingsData(ctx context.Context, ratingsData *models.HotelRatingsData) error {
+	// Try to update first, if not found then create
+	result := s.db.WithContext(ctx).Where("hotel_id = ?", ratingsData.HotelID).Updates(ratingsData)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		// No rows were updated, so create new record
+		return s.db.WithContext(ctx).Create(ratingsData).Error
+	}
+	return nil
+}
+
+// Check if a hotel ID is marked as invalid for the Search API
+func (s *HotelService) IsHotelIDInvalidForSearch(ctx context.Context, hotelID string) (bool, error) {
+	var invalid models.InvalidHotelSearchID
+	err := s.db.WithContext(ctx).Where("hotel_id = ?", hotelID).First(&invalid).Error
+	if err == gorm.ErrRecordNotFound {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Mark a hotel ID as invalid for the Search API
+func (s *HotelService) MarkHotelIDInvalidForSearch(ctx context.Context, hotelID string) error {
+	invalid := models.InvalidHotelSearchID{HotelID: hotelID}
+	return s.db.WithContext(ctx).FirstOrCreate(&invalid, models.InvalidHotelSearchID{HotelID: hotelID}).Error
+}
+
 // GetHotelWithDetails returns hotel with search and ratings data
+// This method is kept for backward compatibility but GetByIDWithDetails is preferred
 func (s *HotelService) GetHotelWithDetails(ctx context.Context, hotelID string) (*models.HotelAPIItem, *models.HotelSearchData, *models.HotelRatingsData, error) {
-	hotel, err := s.GetByID(ctx, hotelID)
+	hotel, err := s.GetByIDWithDetails(ctx, hotelID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	searchData, err := s.GetSearchDataByHotelID(ctx, hotelID)
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, nil, nil, err
-	}
+	return hotel, hotel.SearchData, hotel.RatingsData, nil
+}
 
-	ratingsData, err := s.GetRatingsDataByHotelID(ctx, hotelID)
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, nil, nil, err
-	}
+// GetHotelsWithCompleteData returns hotels that have all three types of data
+func (s *HotelService) GetHotelsWithCompleteData(ctx context.Context, page uint64, limit uint64) ([]*models.HotelAPIItem, error) {
+	var hotels []*models.HotelAPIItem
+	offset := int(page) * int(limit)
 
-	return hotel, searchData, ratingsData, nil
+	err := s.db.WithContext(ctx).
+		Preload("SearchData").
+		Preload("RatingsData").
+		Joins("JOIN hotel_search_data ON hotel_api_items.hotel_id = hotel_search_data.hotel_id").
+		Joins("JOIN hotel_ratings_data ON hotel_api_items.hotel_id = hotel_ratings_data.hotel_id").
+		Limit(int(limit)).
+		Offset(offset).
+		Find(&hotels).Error
+	if err != nil {
+		return nil, err
+	}
+	return hotels, nil
+}
+
+// GetHotelsWithSearchData returns hotels that have search data
+func (s *HotelService) GetHotelsWithSearchData(ctx context.Context, page uint64, limit uint64) ([]*models.HotelAPIItem, error) {
+	var hotels []*models.HotelAPIItem
+	offset := int(page) * int(limit)
+
+	err := s.db.WithContext(ctx).
+		Preload("SearchData").
+		Joins("JOIN hotel_search_data ON hotel_api_items.hotel_id = hotel_search_data.hotel_id").
+		Limit(int(limit)).
+		Offset(offset).
+		Find(&hotels).Error
+	if err != nil {
+		return nil, err
+	}
+	return hotels, nil
+}
+
+// GetHotelsWithRatingsData returns hotels that have ratings data
+func (s *HotelService) GetHotelsWithRatingsData(ctx context.Context, page uint64, limit uint64) ([]*models.HotelAPIItem, error) {
+	var hotels []*models.HotelAPIItem
+	offset := int(page) * int(limit)
+
+	err := s.db.WithContext(ctx).
+		Preload("RatingsData").
+		Joins("JOIN hotel_ratings_data ON hotel_api_items.hotel_id = hotel_ratings_data.hotel_id").
+		Limit(int(limit)).
+		Offset(offset).
+		Find(&hotels).Error
+	if err != nil {
+		return nil, err
+	}
+	return hotels, nil
 }

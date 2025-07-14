@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,69 +22,64 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// fetchHotelsListPaginated fetches all hotels with proper pagination handling
+// fetchHotelsListPaginated fetches all hotels with proper pagination handling using API links
 func fetchHotelsListPaginated(ctx context.Context, hotelService *services.HotelService, baseURL, apiToken string) (int, error) {
 	hotels_created := 0
-	searchField := "cityCode"
-	searchValue := "AUS"
-	page := 0
-	limit := 50 // Amadeus default limit
+
+	// Build initial URL with required parameters
+	data := url.Values{}
+	data.Set("cityCode", "AUS")
+	currentURL := baseURL + "?" + data.Encode()
+	page := 1
 
 	for {
-		data := url.Values{}
-		data.Set(searchField, searchValue)
-		data.Set("page[limit]", strconv.Itoa(limit))
-		data.Set("page[offset]", strconv.Itoa(page*limit))
-
-		requestURL := baseURL + "?" + data.Encode()
-
-		req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", currentURL, nil)
 		if err != nil {
 			return hotels_created, fmt.Errorf("error creating request: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+apiToken)
 
-		log.Printf("Fetching page %d for cityCode: %s", page+1, searchValue)
+		log.Printf("Fetching page %d for cityCode: AUS", page)
+		log.Printf("Request URL: %s", currentURL)
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return hotels_created, fmt.Errorf("error fetching %s: %w", requestURL, err)
+			return hotels_created, fmt.Errorf("error making request: %w", err)
 		}
 		defer resp.Body.Close()
 
-		log.Printf("Status: %s", resp.Status)
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return hotels_created, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
 
 		var apiResp models.HotelsListResponse
 		if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-			return hotels_created, fmt.Errorf("decode error: %w", err)
+			return hotels_created, fmt.Errorf("error decoding response: %w", err)
 		}
 
-		log.Printf("Page %d: Found %d hotels (Total: %d)", page+1, len(apiResp.Data), apiResp.Meta.Count)
-
-		if len(apiResp.Data) == 0 {
-			log.Println("No more hotels found, stopping pagination")
-			break
-		}
-
+		// Process hotels in this page
 		for _, hotel := range apiResp.Data {
-			log.Printf("Processing: %s", hotel.Name)
 			err := hotelService.Create(ctx, &hotel)
 			if err != nil {
 				log.Printf("Error saving hotel %s: %v", hotel.Name, err)
 			} else {
+				log.Printf("Processing: %s", hotel.Name)
 				hotels_created++
 			}
 		}
 
-		// Check if we've fetched all hotels
-		if len(apiResp.Data) < limit || hotels_created >= apiResp.Meta.Count {
-			log.Printf("Reached end of results. Total fetched: %d", hotels_created)
+		// Check if there's a next page
+		if apiResp.Meta.Links.Next == "" {
+			log.Printf("No next page available, stopping pagination")
 			break
 		}
 
+		// Use the next page URL from the API response
+		currentURL = apiResp.Meta.Links.Next
 		page++
 
-		// Rate limiting - be nice to the API
+		// Rate limiting
 		time.Sleep(100 * time.Millisecond)
 	}
 
@@ -110,7 +108,7 @@ func fetchHotelSearchData(ctx context.Context, hotelService *services.HotelServi
 			// Build request URL for hotel search
 			data := url.Values{}
 			data.Set("hotelIds", hotelID)
-			requestURL := baseURL + "/v2/shopping/hotel-offers?" + data.Encode()
+			requestURL := baseURL + "?" + data.Encode()
 
 			req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
 			if err != nil {
@@ -139,7 +137,7 @@ func fetchHotelSearchData(ctx context.Context, hotelService *services.HotelServi
 
 			if len(searchResp.Data) > 0 {
 				hotelData := searchResp.Data[0]
-				err := hotelService.CreateSearchData(ctx, &hotelData)
+				err := hotelService.UpsertSearchData(ctx, &hotelData)
 				if err != nil {
 					log.Printf("Error saving search data for hotel %s: %v", hotelID, err)
 				} else {
@@ -164,7 +162,7 @@ func fetchHotelSearchData(ctx context.Context, hotelService *services.HotelServi
 // fetchHotelRatingsData fetches ratings and sentiment data for each hotel ID
 func fetchHotelRatingsData(ctx context.Context, hotelService *services.HotelService, baseURL, apiToken string, hotelIDs []string) (int, error) {
 	ratingsCreated := 0
-	semaphore := make(chan struct{}, 5) // Limit concurrent requests
+	semaphore := make(chan struct{}, 5) // Limit concurrent requests to match search
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
@@ -180,7 +178,7 @@ func fetchHotelRatingsData(ctx context.Context, hotelService *services.HotelServ
 			defer func() { <-semaphore }()
 
 			// Build request URL for hotel ratings
-			requestURL := baseURL + "/v2/e-reputation/hotel-sentiments?hotelIds=" + hotelID
+			requestURL := baseURL + "?hotelIds=" + hotelID
 
 			req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
 			if err != nil {
@@ -209,7 +207,7 @@ func fetchHotelRatingsData(ctx context.Context, hotelService *services.HotelServ
 
 			if len(ratingsResp.Data) > 0 {
 				ratingData := ratingsResp.Data[0]
-				err := hotelService.CreateRatingsData(ctx, &ratingData)
+				err := hotelService.UpsertRatingsData(ctx, &ratingData)
 				if err != nil {
 					log.Printf("Error saving ratings data for hotel %s: %v", hotelID, err)
 				} else {
@@ -221,7 +219,7 @@ func fetchHotelRatingsData(ctx context.Context, hotelService *services.HotelServ
 				}
 			}
 
-			// Rate limiting
+			// Rate limiting - match search implementation
 			time.Sleep(200 * time.Millisecond)
 		}(hotelID)
 	}
@@ -271,35 +269,33 @@ func oauth2_token(ctx context.Context, client_secret, client_id string) (string,
 }
 
 func main() {
-	_ = godotenv.Load("../.env")
+	_, currentFile, _, _ := runtime.Caller(0)
+	projectRoot := filepath.Dir(filepath.Dir(currentFile))
+	_ = godotenv.Load(filepath.Join(projectRoot, ".env"))
 	apiClient := os.Getenv("AMD")
 	apiSecret := os.Getenv("AMS")
-	baseURL := os.Getenv("HOTEL_API_URL") // e.g. "https://test.api.amadeus.com"
-	byCityUrl := os.Getenv("BY_CITY_URL")
 
-	url := baseURL + byCityUrl
+	// Debug: Print environment variables (without sensitive data)
+	log.Printf("Environment variables:")
+	log.Printf("  AMD (client_id): %s", apiClient)
+	log.Printf("  AMS (client_secret): [HIDDEN]")
 
-	ctx := context.Background()
+	// Initialize database
 	db, err := database.NewDatabase()
 	if err != nil {
-		log.Fatal("Failed to initialize database:", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer func() {
-		sqlDB, err := db.DB()
-		if err != nil {
-			log.Printf("Error getting underlying DB: %v", err)
-			return
-		}
-		sqlDB.Close()
-	}()
+
+	// Initialize services
+	hotelService := services.NewHotelService(db)
 
 	// Auto migrate models - updated to use new models
-	err = db.AutoMigrate(&models.User{}, &models.Post{}, &models.HotelAPIItem{}, &models.HotelSearchData{}, &models.HotelRatingsData{})
+	err = db.AutoMigrate(&models.User{}, &models.Post{}, &models.HotelAPIItem{}, &models.HotelSearchData{}, &models.HotelRatingsData{}, &models.InvalidHotelSearchID{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database schema: %v", err)
 	}
 
-	hotelService := services.NewHotelService(db)
+	ctx := context.Background()
 
 	apiToken, err := oauth2_token(ctx, apiSecret, apiClient)
 	if err != nil {
@@ -307,36 +303,65 @@ func main() {
 	}
 	log.Println("API Token:", apiToken)
 
-	// Step 1: Fetch basic hotel list with pagination
+	// Get API endpoint URLs for different APIs
+	hotelListURL := os.Getenv("AMADEUS_HOTEL_LIST_URL")
+	if hotelListURL == "" {
+		hotelListURL = "https://test.api.amadeus.com/v1/reference-data/locations/hotels/by-city"
+	}
+
+	hotelSearchURL := os.Getenv("AMADEUS_HOTEL_SEARCH_URL")
+	if hotelSearchURL == "" {
+		hotelSearchURL = "https://test.api.amadeus.com/v2/shopping/hotel-offers"
+	}
+
+	hotelRatingsURL := os.Getenv("AMADEUS_HOTEL_RATINGS_URL")
+	if hotelRatingsURL == "" {
+		hotelRatingsURL = "https://test.api.amadeus.com/v2/e-reputation/hotel-sentiments"
+	}
+
+	log.Printf("Using Hotel List URL: %s", hotelListURL)
+	log.Printf("Using Hotel Search URL: %s", hotelSearchURL)
+	log.Printf("Using Hotel Ratings URL: %s", hotelRatingsURL)
+
+	// Step 1: Fetch hotel list using V1 API
 	log.Println("=== Step 1: Fetching hotel list ===")
-	hotelsCount, err := fetchHotelsListPaginated(ctx, hotelService, url, apiToken)
+	hotelsCreated, err := fetchHotelsListPaginated(ctx, hotelService, hotelListURL, apiToken)
 	if err != nil {
-		log.Fatal("Error fetching hotels:", err)
+		log.Printf("Error fetching hotel list: %v", err)
+	} else {
+		log.Printf("Successfully fetched %d hotels total", hotelsCreated)
 	}
 
-	// Step 2: Get hotel IDs for detailed data fetching
+	// Step 2: Get hotel IDs for further processing
 	log.Println("=== Step 2: Getting hotel IDs ===")
-	hotelIDs, err := getHotelIDs(ctx, hotelService)
+	hotelIDs, err := hotelService.GetHotelIDs(ctx)
 	if err != nil {
-		log.Fatal("Error getting hotel IDs:", err)
+		log.Printf("Error getting hotel IDs: %v", err)
+		return
 	}
+	log.Printf("Retrieved %d hotel IDs for processing", len(hotelIDs))
 
-	// Step 3: Fetch detailed search data (concurrent)
+	// Step 3: Fetch hotel search data using V2 API
 	log.Println("=== Step 3: Fetching hotel search data ===")
-	searchCount, err := fetchHotelSearchData(ctx, hotelService, baseURL, apiToken, hotelIDs)
-	if err != nil {
-		log.Printf("Error fetching search data: %v", err)
-	}
+	// searchCreated, err := fetchHotelSearchData(ctx, hotelService, hotelSearchURL, apiToken, hotelIDs)
+	// if err != nil {
+	// 	log.Printf("Error fetching hotel search data: %v", err)
+	// } else {
+	// 	log.Printf("Successfully fetched search data for %d hotels", searchCreated)
+	// }
 
-	// Step 4: Fetch ratings data (concurrent)
+	// Step 4: Fetch hotel ratings data using V2 API
 	log.Println("=== Step 4: Fetching hotel ratings data ===")
-	ratingsCount, err := fetchHotelRatingsData(ctx, hotelService, baseURL, apiToken, hotelIDs)
+	ratingsCreated, err := fetchHotelRatingsData(ctx, hotelService, hotelRatingsURL, apiToken, hotelIDs)
 	if err != nil {
-		log.Printf("Error fetching ratings data: %v", err)
+		log.Printf("Error fetching hotel ratings data: %v", err)
+	} else {
+		log.Printf("Successfully fetched ratings data for %d hotels", ratingsCreated)
 	}
 
-	log.Printf("=== Summary ===")
-	log.Printf("Hotels fetched: %d", hotelsCount)
-	log.Printf("Search data fetched: %d", searchCount)
-	log.Printf("Ratings data fetched: %d", ratingsCount)
+	// Summary
+	log.Println("=== Summary ===")
+	log.Printf("Hotels fetched: %d", hotelsCreated)
+	//log.Printf("Search data fetched: %d", searchCreated)
+	log.Printf("Ratings data fetched: %d", ratingsCreated)
 }

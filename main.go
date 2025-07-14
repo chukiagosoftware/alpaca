@@ -22,13 +22,39 @@ type PageData struct {
 }
 
 func main() {
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatal("Error loading .env file")
+	// Smart .env loading - try multiple locations
+	envLoaded := false
+	envPaths := []string{
+		".env",       // Current directory
+		"../.env",    // Parent directory
+		"../../.env", // Grandparent directory
 	}
+
+	for _, path := range envPaths {
+		if err := godotenv.Load(path); err == nil {
+			log.Printf("Loaded .env file from: %s", path)
+			envLoaded = true
+			break
+		}
+	}
+
+	if !envLoaded {
+		log.Printf("Warning: No .env file found in any of the expected locations")
+		log.Printf("Make sure environment variables are set manually")
+	}
+
 	PORT := os.Getenv("PORT")
 	DATABASE_URL := os.Getenv("DATABASE_URL")
 	JWT_SECRET := os.Getenv("JWT_SECRET")
+
+	// Validate required environment variables
+	if PORT == "" {
+		PORT = "8080" // Default port
+		log.Printf("PORT not set, using default: %s", PORT)
+	}
+	if JWT_SECRET == "" {
+		log.Fatal("JWT_SECRET environment variable is required")
+	}
 
 	s, err := server.NewServer(context.Background(), &server.Config{
 		Port:        PORT,
@@ -70,6 +96,11 @@ func BindRoutes(s server.Server, r *mux.Router) {
 	r.HandleFunc("/api/v1/hotels", handlers.ListHotelsHandler(s)).Methods(http.MethodGet)
 	r.HandleFunc("/api/v1/hotels/{hotelId}", handlers.GetHotelByIDHandler(s)).Methods(http.MethodGet)
 	r.HandleFunc("/api/v1/hotels/city/{cityName}", handlers.GetHotelsByCityHandler(s)).Methods(http.MethodGet)
+
+	// New hotel routes with relationship data
+	r.HandleFunc("/api/v1/hotels/complete", handlers.ListHotelsWithCompleteDataHandler(s)).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/hotels/with-search", handlers.ListHotelsWithSearchDataHandler(s)).Methods(http.MethodGet)
+	r.HandleFunc("/api/v1/hotels/with-ratings", handlers.ListHotelsWithRatingsDataHandler(s)).Methods(http.MethodGet)
 
 	r.HandleFunc("/ws", s.Hub().HandleWebSocket)
 

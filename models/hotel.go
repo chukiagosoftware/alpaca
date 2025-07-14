@@ -27,10 +27,11 @@ type HotelsListResponse struct {
 }
 
 // HotelAPIItem represents a single hotel item as returned by the Amadeus Hotel List API.
+// This is the parent table that other hotel data references.
 type HotelAPIItem struct {
 	gorm.Model
 	Type       string         `json:"type" gorm:"column:type"`
-	HotelID    string         `json:"hotelId" gorm:"column:hotel_id;index"`
+	HotelID    string         `json:"hotelId" gorm:"column:hotel_id;uniqueIndex;not null"`
 	ChainCode  string         `json:"chainCode" gorm:"column:chain_code"`
 	DupeID     int64          `json:"dupeId" gorm:"column:dupe_id"`
 	Name       string         `json:"name" gorm:"column:name"`
@@ -39,6 +40,10 @@ type HotelAPIItem struct {
 	GeoCode    datatypes.JSON `json:"geoCode" gorm:"column:geo_code"`
 	Distance   datatypes.JSON `json:"distance" gorm:"column:distance"`
 	LastUpdate string         `json:"lastUpdate" gorm:"column:last_update"`
+
+	// Relationships
+	SearchData  *HotelSearchData  `json:"searchData,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
+	RatingsData *HotelRatingsData `json:"ratingsData,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
 }
 
 // HotelsListMeta captures pagination and other metadata from the API response.
@@ -49,7 +54,11 @@ type HotelsListMeta struct {
 
 // HotelsListMetaLink captures the links object in the meta field.
 type HotelsListMetaLink struct {
-	Self string `json:"self"`
+	Self  string `json:"self"`
+	First string `json:"first"`
+	Prev  string `json:"prev"`
+	Next  string `json:"next"`
+	Last  string `json:"last"`
 }
 
 // ===== HOTEL SEARCH API MODELS =====
@@ -61,10 +70,11 @@ type HotelSearchResponse struct {
 }
 
 // HotelSearchData represents detailed hotel information from the search API
+// This is a child table that references HotelAPIItem
 type HotelSearchData struct {
 	gorm.Model
 	Type           string         `json:"type" gorm:"column:type"`
-	HotelID        string         `json:"hotelId" gorm:"column:hotel_id;index"`
+	HotelID        string         `json:"hotelId" gorm:"column:hotel_id;uniqueIndex;not null;foreignKey:HotelID;references:HotelID"`
 	ChainCode      string         `json:"chainCode" gorm:"column:chain_code"`
 	DupeID         int64          `json:"dupeId" gorm:"column:dupe_id"`
 	Name           string         `json:"name" gorm:"column:name"`
@@ -81,6 +91,9 @@ type HotelSearchData struct {
 	Self           string         `json:"self" gorm:"column:self"`
 	HotelDistance  datatypes.JSON `json:"hotelDistance" gorm:"column:hotel_distance"`
 	LastUpdate     string         `json:"lastUpdate" gorm:"column:last_update"`
+
+	// Relationship back to parent
+	Hotel *HotelAPIItem `json:"hotel,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
 }
 
 // HotelSearchMeta represents metadata for the search response
@@ -112,29 +125,33 @@ type HotelRatingsResponse struct {
 }
 
 // HotelRatingsData represents detailed ratings information
+// This is a child table that references HotelAPIItem
 type HotelRatingsData struct {
 	gorm.Model
-	Type            string                 `json:"type" gorm:"column:type"`
-	HotelID         string                 `json:"hotelId" gorm:"column:hotel_id;index"`
-	NumberOfReviews int                    `json:"numberOfReviews" gorm:"column:number_of_reviews"`
-	NumberOfRatings int                    `json:"numberOfRatings" gorm:"column:number_of_ratings"`
-	OverallRating   int                    `json:"overallRating" gorm:"column:overall_rating"`
-	Sentiments      HotelRatingsSentiments `json:"sentiments" gorm:"column:sentiments"`
-	LastUpdate      string                 `json:"lastUpdate" gorm:"column:last_update"`
+	Type            string         `json:"type" gorm:"column:type"`
+	HotelID         string         `json:"hotelId" gorm:"column:hotel_id;uniqueIndex;not null;foreignKey:HotelID;references:HotelID"`
+	NumberOfReviews int            `json:"numberOfReviews" gorm:"column:number_of_reviews"`
+	NumberOfRatings int            `json:"numberOfRatings" gorm:"column:number_of_ratings"`
+	OverallRating   int            `json:"overallRating" gorm:"column:overall_rating"`
+	Sentiments      datatypes.JSON `json:"sentiments" gorm:"column:sentiments"`
+	LastUpdate      string         `json:"lastUpdate" gorm:"column:last_update"`
+
+	// Relationship back to parent
+	Hotel *HotelAPIItem `json:"hotel,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
 }
 
 // HotelRatingsSentiments represents the sentiment categories
 type HotelRatingsSentiments struct {
-	SleepQuality     int `json:"sleepQuality,omitempty" gorm:"column:sleep_quality"`
-	Service          int `json:"service,omitempty" gorm:"column:service"`
-	Facilities       int `json:"facilities,omitempty" gorm:"column:facilities"`
-	RoomComforts     int `json:"roomComforts,omitempty" gorm:"column:room_comforts"`
-	ValueForMoney    int `json:"valueForMoney,omitempty" gorm:"column:value_for_money"`
-	Catering         int `json:"catering,omitempty" gorm:"column:catering"`
-	Location         int `json:"location,omitempty" gorm:"column:location"`
-	Internet         int `json:"internet,omitempty" gorm:"column:internet"`
-	PointsOfInterest int `json:"pointsOfInterest,omitempty" gorm:"column:points_of_interest"`
-	Staff            int `json:"staff,omitempty" gorm:"column:staff"`
+	SleepQuality     int `json:"sleepQuality,omitempty"`
+	Service          int `json:"service,omitempty"`
+	Facilities       int `json:"facilities,omitempty"`
+	RoomComforts     int `json:"roomComforts,omitempty"`
+	ValueForMoney    int `json:"valueForMoney,omitempty"`
+	Catering         int `json:"catering,omitempty"`
+	Location         int `json:"location,omitempty"`
+	Internet         int `json:"internet,omitempty"`
+	PointsOfInterest int `json:"pointsOfInterest,omitempty"`
+	Staff            int `json:"staff,omitempty"`
 }
 
 // HotelRatingsMeta represents metadata for the ratings response
@@ -160,4 +177,11 @@ type HotelRatingsWarning struct {
 type HotelRatingsWarningSource struct {
 	Parameter string `json:"parameter"`
 	Pointer   string `json:"pointer"`
+}
+
+// InvalidHotelSearchID stores hotel IDs that are invalid for the Search API
+// and should be skipped in future runs.
+type InvalidHotelSearchID struct {
+	ID      uint   `gorm:"primaryKey"`
+	HotelID string `gorm:"uniqueIndex;not null"`
 }

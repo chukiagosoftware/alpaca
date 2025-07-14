@@ -25,6 +25,7 @@ func ListHotelsHandler(s server.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		pageStr := r.URL.Query().Get("page")
 		limitStr := r.URL.Query().Get("limit")
+		withDetails := r.URL.Query().Get("withDetails") == "true"
 
 		var page uint64 = 0
 		var limit uint64 = 10
@@ -41,7 +42,15 @@ func ListHotelsHandler(s server.Server) http.HandlerFunc {
 			}
 		}
 
-		hotels, err := s.HotelService().List(r.Context(), page, limit)
+		var hotels []*models.HotelAPIItem
+		var err error
+
+		if withDetails {
+			hotels, err = s.HotelService().ListWithDetails(r.Context(), page, limit)
+		} else {
+			hotels, err = s.HotelService().List(r.Context(), page, limit)
+		}
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -67,8 +76,17 @@ func GetHotelByIDHandler(s server.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
 		hotelID := params["hotelId"]
+		withDetails := r.URL.Query().Get("withDetails") == "true"
 
-		hotel, err := s.HotelService().GetByID(r.Context(), hotelID)
+		var hotel *models.HotelAPIItem
+		var err error
+
+		if withDetails {
+			hotel, err = s.HotelService().GetByIDWithDetails(r.Context(), hotelID)
+		} else {
+			hotel, err = s.HotelService().GetByID(r.Context(), hotelID)
+		}
+
 		if err != nil {
 			http.Error(w, "Hotel not found", http.StatusNotFound)
 			return
@@ -88,6 +106,7 @@ func GetHotelsByCityHandler(s server.Server) http.HandlerFunc {
 
 		pageStr := r.URL.Query().Get("page")
 		limitStr := r.URL.Query().Get("limit")
+		withDetails := r.URL.Query().Get("withDetails") == "true"
 
 		var page uint64 = 0
 		var limit uint64 = 10
@@ -104,7 +123,122 @@ func GetHotelsByCityHandler(s server.Server) http.HandlerFunc {
 			}
 		}
 
-		hotels, err := s.HotelService().GetByCity(r.Context(), cityName, page, limit)
+		var hotels []*models.HotelAPIItem
+		var err error
+
+		if withDetails {
+			hotels, err = s.HotelService().GetByCityWithDetails(r.Context(), cityName, page, limit)
+		} else {
+			hotels, err = s.HotelService().GetByCity(r.Context(), cityName, page, limit)
+		}
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(HotelListResponse{
+			Hotels: hotels,
+			Page:   page,
+			Limit:  limit,
+		})
+	}
+}
+
+// New handlers for hotels with complete data
+
+func ListHotelsWithCompleteDataHandler(s server.Server) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pageStr := r.URL.Query().Get("page")
+		limitStr := r.URL.Query().Get("limit")
+
+		var page uint64 = 0
+		var limit uint64 = 10
+
+		if pageStr != "" {
+			if p, err := strconv.ParseUint(pageStr, 10, 64); err == nil {
+				page = p
+			}
+		}
+
+		if limitStr != "" {
+			if l, err := strconv.ParseUint(limitStr, 10, 64); err == nil {
+				limit = l
+			}
+		}
+
+		hotels, err := s.HotelService().GetHotelsWithCompleteData(r.Context(), page, limit)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(HotelListResponse{
+			Hotels: hotels,
+			Page:   page,
+			Limit:  limit,
+		})
+	}
+}
+
+func ListHotelsWithSearchDataHandler(s server.Server) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pageStr := r.URL.Query().Get("page")
+		limitStr := r.URL.Query().Get("limit")
+
+		var page uint64 = 0
+		var limit uint64 = 10
+
+		if pageStr != "" {
+			if p, err := strconv.ParseUint(pageStr, 10, 64); err == nil {
+				page = p
+			}
+		}
+
+		if limitStr != "" {
+			if l, err := strconv.ParseUint(limitStr, 10, 64); err == nil {
+				limit = l
+			}
+		}
+
+		hotels, err := s.HotelService().GetHotelsWithSearchData(r.Context(), page, limit)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(HotelListResponse{
+			Hotels: hotels,
+			Page:   page,
+			Limit:  limit,
+		})
+	}
+}
+
+func ListHotelsWithRatingsDataHandler(s server.Server) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pageStr := r.URL.Query().Get("page")
+		limitStr := r.URL.Query().Get("limit")
+
+		var page uint64 = 0
+		var limit uint64 = 10
+
+		if pageStr != "" {
+			if p, err := strconv.ParseUint(pageStr, 10, 64); err == nil {
+				page = p
+			}
+		}
+
+		if limitStr != "" {
+			if l, err := strconv.ParseUint(limitStr, 10, 64); err == nil {
+				limit = l
+			}
+		}
+
+		hotels, err := s.HotelService().GetHotelsWithRatingsData(r.Context(), page, limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
