@@ -1,16 +1,44 @@
-FROM golang:1.23-bookworm AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o topology-app main.go
+# Build stage
+FROM golang:1.23-alpine AS builder
 
-FROM debian:bookworm-slim
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev sqlite-dev
+
+# Set working directory
 WORKDIR /app
-COPY --from=builder /app/topology-app .
-COPY .env .
-COPY static/ ./static/
-COPY templates/ ./templates/
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
-EXPOSE 8080
-CMD ["./topology-app"]
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o worker-alpaca ./worker-alpaca
+
+# Runtime stage
+FROM alpine:latest
+
+# Install runtime dependencies for SQLite
+RUN apk add --no-cache ca-certificates sqlite
+
+# Create app directory
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/worker-alpaca .
+
+# Copy .env file if it exists (optional - can also use environment variables)
+# COPY .env .env
+
+# Create directory for database
+RUN mkdir -p /app/data
+
+# Set environment variable for database path
+ENV SQLITE_DB_PATH=/app/data/alpaca.db
+
+# Run the application
+CMD ["./worker-alpaca"]

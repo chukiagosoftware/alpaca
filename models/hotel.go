@@ -1,58 +1,51 @@
 package models
 
 import (
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
+	"encoding/json"
+	"time"
 )
 
+// HotelAmadeusOauth2 represents the OAuth2 token response from Amadeus API
 type HotelAmadeusOauth2 struct {
-	Type             string `json:"type"`
-	Username         string `json:"username"`
-	Password         string `json:"password"`
-	Application_name string `json:"application_name"`
-	Client_id        string `json:"client_id"`
-	Token_type       string `json:"token_type"`
-	Access_token     string `json:"access_token"`
-	Expires_in       int64  `json:"expires_in"`
-	Expires_at       int64  `json:"expires_at"`
-	State            string `json:"state"`
-	Grant_type       string `json:"grant_type"`
-	Scope            string `json:"scope"`
+	Type         string `json:"type"`
+	TokenType    string `json:"token_type"`
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int64  `json:"expires_in"`
+	ExpiresAt    int64  `json:"expires_at"`
+	GrantType    string `json:"grant_type"`
+	Scope        string `json:"scope"`
 }
 
-// HotelsListResponse represents the full API response with data and meta fields.
+// HotelsListResponse represents the full API response with data and meta fields
 type HotelsListResponse struct {
 	Data []HotelAPIItem `json:"data"`
 	Meta HotelsListMeta `json:"meta"`
 }
 
-// HotelAPIItem represents a single hotel item as returned by the Amadeus Hotel List API.
-// This is the parent table that other hotel data references.
+// HotelAPIItem represents a single hotel item as returned by the Amadeus Hotel List API
 type HotelAPIItem struct {
-	gorm.Model
-	Type       string         `json:"type" gorm:"column:type"`
-	HotelID    string         `json:"hotelId" gorm:"column:hotel_id;uniqueIndex;not null"`
-	ChainCode  string         `json:"chainCode" gorm:"column:chain_code"`
-	DupeID     int64          `json:"dupeId" gorm:"column:dupe_id"`
-	Name       string         `json:"name" gorm:"column:name"`
-	IATACode   string         `json:"iataCode" gorm:"column:iata_code"`
-	Address    datatypes.JSON `json:"address" gorm:"column:address"`
-	GeoCode    datatypes.JSON `json:"geoCode" gorm:"column:geo_code"`
-	Distance   datatypes.JSON `json:"distance" gorm:"column:distance"`
-	LastUpdate string         `json:"lastUpdate" gorm:"column:last_update"`
-
-	// Relationships
-	SearchData  *HotelSearchData  `json:"searchData,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
-	RatingsData *HotelRatingsData `json:"ratingsData,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
+	ID        int64     `json:"-"`
+	Type      string    `json:"type"`
+	HotelID   string    `json:"hotelId"`
+	ChainCode string    `json:"chainCode"`
+	DupeID    int64     `json:"dupeId"`
+	Name      string    `json:"name"`
+	IATACode  string    `json:"iataCode"`
+	Address   json.RawMessage `json:"address"`
+	GeoCode   json.RawMessage `json:"geoCode"`
+	Distance  json.RawMessage `json:"distance"`
+	LastUpdate string   `json:"lastUpdate"`
+	CreatedAt time.Time `json:"-"`
+	UpdatedAt time.Time `json:"-"`
 }
 
-// HotelsListMeta captures pagination and other metadata from the API response.
+// HotelsListMeta captures pagination and other metadata from the API response
 type HotelsListMeta struct {
 	Count int                `json:"count"`
 	Links HotelsListMetaLink `json:"links"`
 }
 
-// HotelsListMetaLink captures the links object in the meta field.
+// HotelsListMetaLink captures the links object in the meta field
 type HotelsListMetaLink struct {
 	Self  string `json:"self"`
 	First string `json:"first"`
@@ -61,8 +54,6 @@ type HotelsListMetaLink struct {
 	Last  string `json:"last"`
 }
 
-// ===== HOTEL SEARCH API MODELS =====
-
 // HotelSearchResponse represents the response from the Hotel Search API
 type HotelSearchResponse struct {
 	Data []HotelSearchData `json:"data"`
@@ -70,30 +61,28 @@ type HotelSearchResponse struct {
 }
 
 // HotelSearchData represents detailed hotel information from the search API
-// This is a child table that references HotelAPIItem
 type HotelSearchData struct {
-	gorm.Model
-	Type           string         `json:"type" gorm:"column:type"`
-	HotelID        string         `json:"hotelId" gorm:"column:hotel_id;uniqueIndex;not null;foreignKey:HotelID;references:HotelID"`
-	ChainCode      string         `json:"chainCode" gorm:"column:chain_code"`
-	DupeID         int64          `json:"dupeId" gorm:"column:dupe_id"`
-	Name           string         `json:"name" gorm:"column:name"`
-	Rating         int            `json:"rating" gorm:"column:rating"`
-	OfficialRating int            `json:"officialRating" gorm:"column:official_rating"`
-	Description    datatypes.JSON `json:"description" gorm:"column:description"`
-	Media          datatypes.JSON `json:"media" gorm:"column:media"`
-	Amenities      datatypes.JSON `json:"amenities" gorm:"column:amenities"`
-	Address        datatypes.JSON `json:"address" gorm:"column:address"`
-	Contact        datatypes.JSON `json:"contact" gorm:"column:contact"`
-	Policies       datatypes.JSON `json:"policies" gorm:"column:policies"`
-	Available      bool           `json:"available" gorm:"column:available"`
-	Offers         datatypes.JSON `json:"offers" gorm:"column:offers"`
-	Self           string         `json:"self" gorm:"column:self"`
-	HotelDistance  datatypes.JSON `json:"hotelDistance" gorm:"column:hotel_distance"`
-	LastUpdate     string         `json:"lastUpdate" gorm:"column:last_update"`
-
-	// Relationship back to parent
-	Hotel *HotelAPIItem `json:"hotel,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
+	ID            int64     `json:"-"`
+	Type          string    `json:"type"`
+	HotelID       string    `json:"hotelId"`
+	ChainCode     string    `json:"chainCode"`
+	DupeID        int64     `json:"dupeId"`
+	Name          string    `json:"name"`
+	Rating        int       `json:"rating"`
+	OfficialRating int      `json:"officialRating"`
+	Description   json.RawMessage `json:"description"`
+	Media         json.RawMessage `json:"media"`
+	Amenities     json.RawMessage `json:"amenities"`
+	Address       json.RawMessage `json:"address"`
+	Contact       json.RawMessage `json:"contact"`
+	Policies      json.RawMessage `json:"policies"`
+	Available     bool      `json:"available"`
+	Offers        json.RawMessage `json:"offers"`
+	Self          string    `json:"self"`
+	HotelDistance json.RawMessage `json:"hotelDistance"`
+	LastUpdate    string    `json:"lastUpdate"`
+	CreatedAt     time.Time `json:"-"`
+	UpdatedAt     time.Time `json:"-"`
 }
 
 // HotelSearchMeta represents metadata for the search response
@@ -115,8 +104,6 @@ type HotelSearchWarning struct {
 	Detail string `json:"detail"`
 }
 
-// ===== HOTEL RATINGS API MODELS =====
-
 // HotelRatingsResponse represents the response from the Hotel Ratings API
 type HotelRatingsResponse struct {
 	Data     []HotelRatingsData    `json:"data"`
@@ -125,19 +112,17 @@ type HotelRatingsResponse struct {
 }
 
 // HotelRatingsData represents detailed ratings information
-// This is a child table that references HotelAPIItem
 type HotelRatingsData struct {
-	gorm.Model
-	Type            string         `json:"type" gorm:"column:type"`
-	HotelID         string         `json:"hotelId" gorm:"column:hotel_id;uniqueIndex;not null;foreignKey:HotelID;references:HotelID"`
-	NumberOfReviews int            `json:"numberOfReviews" gorm:"column:number_of_reviews"`
-	NumberOfRatings int            `json:"numberOfRatings" gorm:"column:number_of_ratings"`
-	OverallRating   int            `json:"overallRating" gorm:"column:overall_rating"`
-	Sentiments      datatypes.JSON `json:"sentiments" gorm:"column:sentiments"`
-	LastUpdate      string         `json:"lastUpdate" gorm:"column:last_update"`
-
-	// Relationship back to parent
-	Hotel *HotelAPIItem `json:"hotel,omitempty" gorm:"foreignKey:HotelID;references:HotelID"`
+	ID              int64     `json:"-"`
+	Type            string    `json:"type"`
+	HotelID         string    `json:"hotelId"`
+	NumberOfReviews int       `json:"numberOfReviews"`
+	NumberOfRatings int       `json:"numberOfRatings"`
+	OverallRating   int       `json:"overallRating"`
+	Sentiments      json.RawMessage `json:"sentiments"`
+	LastUpdate      string    `json:"lastUpdate"`
+	CreatedAt       time.Time `json:"-"`
+	UpdatedAt       time.Time `json:"-"`
 }
 
 // HotelRatingsSentiments represents the sentiment categories
@@ -180,8 +165,8 @@ type HotelRatingsWarningSource struct {
 }
 
 // InvalidHotelSearchID stores hotel IDs that are invalid for the Search API
-// and should be skipped in future runs.
 type InvalidHotelSearchID struct {
-	ID      uint   `gorm:"primaryKey"`
-	HotelID string `gorm:"uniqueIndex;not null"`
+	ID        int64     `json:"-"`
+	HotelID   string    `json:"hotelId"`
+	CreatedAt time.Time `json:"-"`
 }

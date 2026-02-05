@@ -19,55 +19,121 @@ import (
 	"github.com/edamsoft-sre/alpaca/database"
 	"github.com/edamsoft-sre/alpaca/models"
 	"github.com/edamsoft-sre/alpaca/services"
+	"github.com/edamsoft-sre/alpaca/utils"
 	"github.com/joho/godotenv"
 )
 
-// fetchHotelsListPaginated fetches all hotels with proper pagination handling using API links
-func fetchHotelsListPaginated(ctx context.Context, hotelService *services.HotelService, baseURL, apiToken string) (int, error) {
-	hotels_created := 0
+// HotelAPIProvider defines the interface for hotel API providers
+type HotelAPIProvider interface {
+	GetOAuthToken(ctx context.Context) (string, error)
+	FetchHotelsList(ctx context.Context, cityCode string, token string) ([]models.HotelAPIItem, string, error)
+	FetchHotelSearchData(ctx context.Context, hotelID string, token string) (*models.HotelSearchData, error)
+	FetchHotelRatingsData(ctx context.Context, hotelID string, token string) (*models.HotelRatingsData, error)
+}
 
-	// Build initial URL with required parameters
+// AmadeusProvider implements HotelAPIProvider for Amadeus API
+type AmadeusProvider struct {
+	clientID     string
+	clientSecret string
+	baseURL      string
+}
+
+// NewAmadeusProvider creates a new Amadeus API provider
+func NewAmadeusProvider(clientID, clientSecret string) *AmadeusProvider {
+	return &AmadeusProvider{
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		baseURL:      "https://test.api.amadeus.com",
+	}
+}
+
+// GetOAuthToken retrieves an OAuth2 token from Amadeus
+func (p *AmadeusProvider) GetOAuthToken(ctx context.Context) (string, error) {
+	baseURL := p.baseURL + "/v1/security/oauth2/token"
 	data := url.Values{}
-	data.Set("cityCode", "AUS")
-	currentURL := baseURL + "?" + data.Encode()
+	data.Set("client_secret", p.clientSecret)
+	data.Set("grant_type", "client_credentials")
+	data.Set("client_id", p.clientID)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to get token, status code: %d: %s", resp.StatusCode, string(body))
+	}
+
+	var token models.HotelAmadeusOauth2
+	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
+		return "", err
+	}
+
+	log.Println("OAuth2 token obtained successfully")
+	return token.AccessToken, nil
+}
+
+// FetchHotelsList fetches hotels list with pagination
+func (p *AmadeusProvider) FetchHotelsList(ctx context.Context, cityCode string, token string) ([]models.HotelAPIItem, string, error) {
+	hotelListURL := os.Getenv("AMADEUS_HOTEL_LIST_URL")
+	if hotelListURL == "" {
+		hotelListURL = p.baseURL + "/v1/reference-data/locations/hotels/by-city"
+	}
+
+	radius := os.Getenv(utils.HotelSearchRadius)
+	if radius == "" {
+		radius = utils.DefaultRadius
+	}
+
+	radiusUnit := os.Getenv(utils.HotelSearchRadiusUnit)
+	if radiusUnit == "" {
+		radiusUnit = utils.DefaultRadiusUnit
+	}
+
+	data := url.Values{}
+	data.Set("cityCode", cityCode)
+	data.Set("radius", radius)
+	data.Set("radiusUnit", radiusUnit)
+
+	var allHotels []models.HotelAPIItem
+	currentURL := hotelListURL + "?" + data.Encode()
 	page := 1
 
 	for {
 		req, err := http.NewRequestWithContext(ctx, "GET", currentURL, nil)
 		if err != nil {
-			return hotels_created, fmt.Errorf("error creating request: %w", err)
+			return nil, "", fmt.Errorf("error creating request: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+apiToken)
+		req.Header.Set("Authorization", "Bearer "+token)
 
-		log.Printf("Fetching page %d for cityCode: AUS", page)
-		log.Printf("Request URL: %s", currentURL)
+		log.Printf("Fetching page %d for cityCode: %s", page, cityCode)
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return hotels_created, fmt.Errorf("error making request: %w", err)
+			return nil, "", fmt.Errorf("error making request: %w", err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return hotels_created, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var apiResp models.HotelsListResponse
 		if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-			return hotels_created, fmt.Errorf("error decoding response: %w", err)
+			return nil, "", fmt.Errorf("error decoding response: %w", err)
 		}
 
-		// Process hotels in this page
-		for _, hotel := range apiResp.Data {
-			err := hotelService.Create(ctx, &hotel)
-			if err != nil {
-				log.Printf("Error saving hotel %s: %v", hotel.Name, err)
-			} else {
-				log.Printf("Processing: %s", hotel.Name)
-				hotels_created++
-			}
-		}
+		allHotels = append(allHotels, apiResp.Data...)
 
 		// Check if there's a next page
 		if apiResp.Meta.Links.Next == "" {
@@ -75,7 +141,6 @@ func fetchHotelsListPaginated(ctx context.Context, hotelService *services.HotelS
 			break
 		}
 
-		// Use the next page URL from the API response
 		currentURL = apiResp.Meta.Links.Next
 		page++
 
@@ -83,18 +148,128 @@ func fetchHotelsListPaginated(ctx context.Context, hotelService *services.HotelS
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	log.Printf("Successfully fetched %d hotels total", hotels_created)
-	return hotels_created, nil
+	log.Printf("Successfully fetched %d hotels total", len(allHotels))
+	return allHotels, "", nil
+}
+
+// FetchHotelSearchData fetches detailed hotel search data
+func (p *AmadeusProvider) FetchHotelSearchData(ctx context.Context, hotelID string, token string) (*models.HotelSearchData, error) {
+	hotelSearchURL := os.Getenv("AMADEUS_HOTEL_SEARCH_URL")
+	if hotelSearchURL == "" {
+		hotelSearchURL = p.baseURL + "/v2/shopping/hotel-offers"
+	}
+
+	data := url.Values{}
+	data.Set("hotelIds", hotelID)
+	requestURL := hotelSearchURL + "?" + data.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("error status %d for hotel %s search", resp.StatusCode, hotelID)
+	}
+
+	var searchResp models.HotelSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	if len(searchResp.Data) > 0 {
+		return &searchResp.Data[0], nil
+	}
+
+	return nil, fmt.Errorf("no data returned for hotel %s", hotelID)
+}
+
+// FetchHotelRatingsData fetches hotel ratings data
+func (p *AmadeusProvider) FetchHotelRatingsData(ctx context.Context, hotelID string, token string) (*models.HotelRatingsData, error) {
+	hotelRatingsURL := os.Getenv("AMADEUS_HOTEL_RATINGS_URL")
+	if hotelRatingsURL == "" {
+		hotelRatingsURL = p.baseURL + "/v2/e-reputation/hotel-sentiments"
+	}
+
+	requestURL := hotelRatingsURL + "?hotelIds=" + hotelID
+
+	req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("error status %d for hotel %s ratings", resp.StatusCode, hotelID)
+	}
+
+	var ratingsResp models.HotelRatingsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&ratingsResp); err != nil {
+		return nil, err
+	}
+
+	if len(ratingsResp.Data) > 0 {
+		return &ratingsResp.Data[0], nil
+	}
+
+	return nil, fmt.Errorf("no data returned for hotel %s", hotelID)
+}
+
+// fetchHotelsListPaginated fetches all hotels with proper pagination handling
+func fetchHotelsListPaginated(ctx context.Context, provider HotelAPIProvider, hotelService *services.HotelService, cityCode string) (int, error) {
+	hotelsCreated := 0
+
+	token, err := provider.GetOAuthToken(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error getting OAuth token: %w", err)
+	}
+
+	hotels, _, err := provider.FetchHotelsList(ctx, cityCode, token)
+	if err != nil {
+		return 0, fmt.Errorf("error fetching hotels list: %w", err)
+	}
+
+	// Process hotels
+	for _, hotel := range hotels {
+		err := hotelService.Create(ctx, &hotel)
+		if err != nil {
+			log.Printf("Error saving hotel %s: %v", hotel.Name, err)
+		} else {
+			log.Printf("Processing: %s", hotel.Name)
+			hotelsCreated++
+		}
+	}
+
+	log.Printf("Successfully fetched %d hotels total", hotelsCreated)
+	return hotelsCreated, nil
 }
 
 // fetchHotelSearchData fetches detailed hotel information for each hotel ID
-func fetchHotelSearchData(ctx context.Context, hotelService *services.HotelService, baseURL, apiToken string, hotelIDs []string) (int, error) {
+func fetchHotelSearchData(ctx context.Context, provider HotelAPIProvider, hotelService *services.HotelService, hotelIDs []string) (int, error) {
 	searchDataCreated := 0
 	semaphore := make(chan struct{}, 5) // Limit concurrent requests
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	log.Printf("Starting to fetch search data for %d hotels", len(hotelIDs))
+
+	token, err := provider.GetOAuthToken(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error getting OAuth token: %w", err)
+	}
 
 	for _, hotelID := range hotelIDs {
 		wg.Add(1)
@@ -105,48 +280,36 @@ func fetchHotelSearchData(ctx context.Context, hotelService *services.HotelServi
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// Build request URL for hotel search
-			data := url.Values{}
-			data.Set("hotelIds", hotelID)
-			requestURL := baseURL + "?" + data.Encode()
-
-			req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
+			// Check if hotel ID is invalid
+			invalid, err := hotelService.IsHotelIDInvalidForSearch(ctx, hotelID)
 			if err != nil {
-				log.Printf("Error creating search request for hotel %s: %v", hotelID, err)
+				log.Printf("Error checking invalid hotel ID %s: %v", hotelID, err)
 				return
 			}
-			req.Header.Set("Authorization", "Bearer "+apiToken)
+			if invalid {
+				log.Printf("Skipping invalid hotel ID: %s", hotelID)
+				return
+			}
 
-			resp, err := http.DefaultClient.Do(req)
+			hotelData, err := provider.FetchHotelSearchData(ctx, hotelID, token)
 			if err != nil {
 				log.Printf("Error fetching search data for hotel %s: %v", hotelID, err)
-				return
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				log.Printf("Error status %d for hotel %s search", resp.StatusCode, hotelID)
-				return
-			}
-
-			var searchResp models.HotelSearchResponse
-			if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-				log.Printf("Error decoding search response for hotel %s: %v", hotelID, err)
-				return
-			}
-
-			if len(searchResp.Data) > 0 {
-				hotelData := searchResp.Data[0]
-				err := hotelService.UpsertSearchData(ctx, &hotelData)
-				if err != nil {
-					log.Printf("Error saving search data for hotel %s: %v", hotelID, err)
-				} else {
-					log.Printf("Fetched and saved search data for hotel: %s", hotelData.Name)
-
-					mu.Lock()
-					searchDataCreated++
-					mu.Unlock()
+				// Mark as invalid if it's a persistent error
+				if err := hotelService.MarkHotelIDInvalidForSearch(ctx, hotelID); err != nil {
+					log.Printf("Error marking hotel ID as invalid: %v", err)
 				}
+				return
+			}
+
+			err = hotelService.UpsertSearchData(ctx, hotelData)
+			if err != nil {
+				log.Printf("Error saving search data for hotel %s: %v", hotelID, err)
+			} else {
+				log.Printf("Fetched and saved search data for hotel: %s", hotelData.Name)
+
+				mu.Lock()
+				searchDataCreated++
+				mu.Unlock()
 			}
 
 			// Rate limiting
@@ -160,13 +323,18 @@ func fetchHotelSearchData(ctx context.Context, hotelService *services.HotelServi
 }
 
 // fetchHotelRatingsData fetches ratings and sentiment data for each hotel ID
-func fetchHotelRatingsData(ctx context.Context, hotelService *services.HotelService, baseURL, apiToken string, hotelIDs []string) (int, error) {
+func fetchHotelRatingsData(ctx context.Context, provider HotelAPIProvider, hotelService *services.HotelService, hotelIDs []string) (int, error) {
 	ratingsCreated := 0
-	semaphore := make(chan struct{}, 5) // Limit concurrent requests to match search
+	semaphore := make(chan struct{}, 1) // Limit concurrent requests
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	log.Printf("Starting to fetch ratings data for %d hotels", len(hotelIDs))
+
+	token, err := provider.GetOAuthToken(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error getting OAuth token: %w", err)
+	}
 
 	for _, hotelID := range hotelIDs {
 		wg.Add(1)
@@ -177,49 +345,24 @@ func fetchHotelRatingsData(ctx context.Context, hotelService *services.HotelServ
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// Build request URL for hotel ratings
-			requestURL := baseURL + "?hotelIds=" + hotelID
-
-			req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
-			if err != nil {
-				log.Printf("Error creating ratings request for hotel %s: %v", hotelID, err)
-				return
-			}
-			req.Header.Set("Authorization", "Bearer "+apiToken)
-
-			resp, err := http.DefaultClient.Do(req)
+			ratingData, err := provider.FetchHotelRatingsData(ctx, hotelID, token)
 			if err != nil {
 				log.Printf("Error fetching ratings data for hotel %s: %v", hotelID, err)
 				return
 			}
-			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK {
-				log.Printf("Error status %d for hotel %s ratings", resp.StatusCode, hotelID)
-				return
+			err = hotelService.UpsertRatingsData(ctx, ratingData)
+			if err != nil {
+				log.Printf("Error saving ratings data for hotel %s: %v", hotelID, err)
+			} else {
+				log.Printf("Fetched and saved ratings data for hotel: %s (Rating: %d)", hotelID, ratingData.OverallRating)
+
+				mu.Lock()
+				ratingsCreated++
+				mu.Unlock()
 			}
 
-			var ratingsResp models.HotelRatingsResponse
-			if err := json.NewDecoder(resp.Body).Decode(&ratingsResp); err != nil {
-				log.Printf("Error decoding ratings response for hotel %s: %v", hotelID, err)
-				return
-			}
-
-			if len(ratingsResp.Data) > 0 {
-				ratingData := ratingsResp.Data[0]
-				err := hotelService.UpsertRatingsData(ctx, &ratingData)
-				if err != nil {
-					log.Printf("Error saving ratings data for hotel %s: %v", hotelID, err)
-				} else {
-					log.Printf("Fetched and saved ratings data for hotel: %s (Rating: %d)", hotelID, ratingData.OverallRating)
-
-					mu.Lock()
-					ratingsCreated++
-					mu.Unlock()
-				}
-			}
-
-			// Rate limiting - match search implementation
+			// Rate limiting
 			time.Sleep(200 * time.Millisecond)
 		}(hotelID)
 	}
@@ -229,103 +372,42 @@ func fetchHotelRatingsData(ctx context.Context, hotelService *services.HotelServ
 	return ratingsCreated, nil
 }
 
-// getHotelIDs retrieves all hotel IDs from the database for processing
-func getHotelIDs(ctx context.Context, hotelService *services.HotelService) ([]string, error) {
-	hotelIDs, err := hotelService.GetHotelIDs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error getting hotel IDs: %w", err)
-	}
-
-	log.Printf("Retrieved %d hotel IDs for processing", len(hotelIDs))
-	return hotelIDs, nil
-}
-
-func oauth2_token(ctx context.Context, client_secret, client_id string) (string, error) {
-	baseUrl := "https://test.api.amadeus.com/v1/security/oauth2/token"
-	data := url.Values{}
-	data.Set("client_secret", client_secret)
-	data.Set("grant_type", "client_credentials")
-	data.Set("client_id", client_id)
-
-	req, _ := http.NewRequestWithContext(ctx, "POST", baseUrl, strings.NewReader(data.Encode()))
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get token, status code: %d", resp.StatusCode)
-	}
-
-	var token models.HotelAmadeusOauth2
-
-	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Oauth2 token saved.")
-	return token.Access_token, nil
-}
-
 func main() {
 	_, currentFile, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Dir(filepath.Dir(currentFile))
 	_ = godotenv.Load(filepath.Join(projectRoot, ".env"))
+
+	// Generate top cities data (uncomment to regenerate)
+	if err := GenerateTopCities(); err != nil {
+		log.Printf("Warning: Failed to generate top cities: %v", err)
+	}
+
 	apiClient := os.Getenv("AMD")
 	apiSecret := os.Getenv("AMS")
 
-	// Debug: Print environment variables (without sensitive data)
-	log.Printf("Environment variables:")
-	log.Printf("  AMD (client_id): %s", apiClient)
-	log.Printf("  AMS (client_secret): [HIDDEN]")
+	if apiClient == "" || apiSecret == "" {
+		log.Fatal("AMD and AMS environment variables are required")
+	}
 
 	// Initialize database
 	db, err := database.NewDatabase()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	defer db.Close()
 
 	// Initialize services
 	hotelService := services.NewHotelService(db)
 
-	// Auto migrate models - updated to use new models
-	err = db.AutoMigrate(&models.User{}, &models.Post{}, &models.HotelAPIItem{}, &models.HotelSearchData{}, &models.HotelRatingsData{}, &models.InvalidHotelSearchID{})
-	if err != nil {
-		log.Fatalf("Failed to migrate database schema: %v", err)
-	}
+	// Initialize API provider
+	provider := NewAmadeusProvider(apiClient, apiSecret)
 
 	ctx := context.Background()
 
-	apiToken, err := oauth2_token(ctx, apiSecret, apiClient)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("API Token:", apiToken)
-
-	// Get API endpoint URLs for different APIs
-	hotelListURL := os.Getenv("AMADEUS_HOTEL_LIST_URL")
-	if hotelListURL == "" {
-		hotelListURL = "https://test.api.amadeus.com/v1/reference-data/locations/hotels/by-city"
-	}
-
-	hotelSearchURL := os.Getenv("AMADEUS_HOTEL_SEARCH_URL")
-	if hotelSearchURL == "" {
-		hotelSearchURL = "https://test.api.amadeus.com/v2/shopping/hotel-offers"
-	}
-
-	hotelRatingsURL := os.Getenv("AMADEUS_HOTEL_RATINGS_URL")
-	if hotelRatingsURL == "" {
-		hotelRatingsURL = "https://test.api.amadeus.com/v2/e-reputation/hotel-sentiments"
-	}
-
-	log.Printf("Using Hotel List URL: %s", hotelListURL)
-	log.Printf("Using Hotel Search URL: %s", hotelSearchURL)
-	log.Printf("Using Hotel Ratings URL: %s", hotelRatingsURL)
-
 	// Step 1: Fetch hotel list using V1 API
 	log.Println("=== Step 1: Fetching hotel list ===")
-	hotelsCreated, err := fetchHotelsListPaginated(ctx, hotelService, hotelListURL, apiToken)
+	cityCode := "AUS" // Default to Austin, can be made configurable
+	hotelsCreated, err := fetchHotelsListPaginated(ctx, provider, hotelService, cityCode)
 	if err != nil {
 		log.Printf("Error fetching hotel list: %v", err)
 	} else {
@@ -343,16 +425,16 @@ func main() {
 
 	// Step 3: Fetch hotel search data using V2 API
 	log.Println("=== Step 3: Fetching hotel search data ===")
-	// searchCreated, err := fetchHotelSearchData(ctx, hotelService, hotelSearchURL, apiToken, hotelIDs)
-	// if err != nil {
-	// 	log.Printf("Error fetching hotel search data: %v", err)
-	// } else {
-	// 	log.Printf("Successfully fetched search data for %d hotels", searchCreated)
-	// }
+	searchCreated, err := fetchHotelSearchData(ctx, provider, hotelService, hotelIDs)
+	if err != nil {
+		log.Printf("Error fetching hotel search data: %v", err)
+	} else {
+		log.Printf("Successfully fetched search data for %d hotels", searchCreated)
+	}
 
-	// Step 4: Fetch hotel ratings data using V2 API
+	// Step 4: Fetch hotel ratings data using V2 API (using test hotel IDs for now)
 	log.Println("=== Step 4: Fetching hotel ratings data ===")
-	ratingsCreated, err := fetchHotelRatingsData(ctx, hotelService, hotelRatingsURL, apiToken, hotelIDs)
+	ratingsCreated, err := fetchHotelRatingsData(ctx, provider, hotelService, utils.TestHotelIDs)
 	if err != nil {
 		log.Printf("Error fetching hotel ratings data: %v", err)
 	} else {
@@ -362,6 +444,6 @@ func main() {
 	// Summary
 	log.Println("=== Summary ===")
 	log.Printf("Hotels fetched: %d", hotelsCreated)
-	//log.Printf("Search data fetched: %d", searchCreated)
+	log.Printf("Search data fetched: %d", searchCreated)
 	log.Printf("Ratings data fetched: %d", ratingsCreated)
 }

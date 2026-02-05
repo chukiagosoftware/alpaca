@@ -1,258 +1,271 @@
-# Alpaca
+# Alpaca - Hotel Data Microservice
 
-A Go HTTP frontend with Postgres, SQLite or other cloud databases. API to query Hotel data. Further will use analytics for sentiment analysis and GPT to query accommodations based on additional criteria or user input.
+A simplified Go microservice that fetches and consolidates hotel data from external APIs. Currently supports the Amadeus API with a generalized architecture for easy extension to other hotel data providers.
 
-Based on Platzi's Advanced Go Course and built using Cursor AI, OpenAI ChatGPT and Twitter's Grok. Most of the code at this point is AI generated and improved upon by prompt. Testing is also automatic and further tests will be added.
+## Architecture
 
-## Exploration
+Alpaca is a single microservice that:
+- Fetches hotel data from external APIs (currently Amadeus)
+- Stores data in SQLite (default) with raw SQL
+- Uses a generalized provider interface for easy API integration
+- Processes data in concurrent batches with rate limiting
 
-LLM choice and library or framework. Retrieval Augmented Generation (RAG) fine-tuning for this and other datasets.
+## Project Structure
 
-
-## 🏨 Hotel Data System
-
-### API OVERVIEW
-Alpaca now includes a comprehensive hotel data management system that fetches and stores detailed hotel information from multiple Amadeus APIs:
-
-- **Hotel List API**: Basic hotel information by city
-- **Hotel Search API**: Detailed hotel metadata, amenities, and offers
-- **Hotel Ratings API**: Sentiment analysis and guest ratings
-
-### Architecture
-
-#### Database Models with Foreign Key Relationships
-- `HotelAPIItem`: Basic hotel information (name, location, chain code) - **Parent Table**
-- `HotelSearchData`: Detailed hotel metadata (amenities, media, policies, offers) - **Child Table**
-- `HotelRatingsData`: Guest ratings and sentiment analysis (overall rating, service quality, etc.) - **Child Table**
-
-**Foreign Key Relationships:**
-- `HotelSearchData.hotel_id` → `HotelAPIItem.hotel_id` (1:1 relationship)
-- `HotelRatingsData.hotel_id` → `HotelAPIItem.hotel_id` (1:1 relationship)
-
-#### Data Flow
 ```
-Hotel List API → Basic hotel data (hotel_api_items)
-     ↓
-Hotel Search API → Detailed metadata (hotel_search_data)  
-     ↓
-Hotel Ratings API → Sentiment data (hotel_ratings_data)
+alpaca/
+├── worker-alpaca/
+│   ├── main.go              # Main entry point - hotel data worker
+│   ├── generate_cities.go   # City data generation utility
+│   └── generated_top_cities.go  # Generated top cities data
+├── models/
+│   └── hotel.go             # Hotel data models (no ORM dependencies)
+├── services/
+│   └── hotel_service.go     # Hotel business logic with raw SQL
+├── database/
+│   └── database.go          # SQLite database connection and schema
+└── utils/
+    └── constants.go        # Constants and test data
 ```
 
-### Features
+## Features
 
-#### ✅ Multi-API Integration
+### ✅ Simplified Architecture
+- **Single Microservice**: One focused service for hotel data collection
+- **Raw SQL**: No ORM overhead, direct SQL control
+- **SQLite First**: Simple, file-based database (easy to migrate to Postgres/Redshift later)
+- **Generalized API Interface**: Easy to add new hotel data providers
+
+### ✅ Hotel Data Collection
 - **Amadeus Hotel List API**: Fetches hotels by city with pagination
 - **Amadeus Hotel Search API**: Retrieves detailed hotel information
 - **Amadeus Hotel Ratings API**: Gets guest sentiment and ratings
 
-#### ✅ Advanced Data Fetching
+### ✅ Advanced Processing
 - **Proper Pagination**: Handles multi-page API responses automatically
 - **Concurrent Processing**: Uses goroutines for parallel data fetching
 - **Rate Limiting**: Respects API limits with configurable delays
 - **Error Handling**: Graceful degradation and detailed error logging
-
-#### ✅ Database Flexibility
-- **Multi-Database Support**: SQLite (default) and PostgreSQL
-- **Environment Configuration**: Easy switching via `DATABASE_TYPE`
-- **Shared Database**: Worker and main app use the same database file
-- **GORM Integration**: Modern ORM with automatic migrations
-- **Foreign Key Relationships**: Proper referential integrity with GORM
-
-#### ✅ Service Layer
-- **HotelService**: Complete CRUD operations for all hotel data types
-- **Concurrent Safe**: Thread-safe operations with proper locking
-- **Context Support**: Full context propagation for timeouts and cancellation
-- **Relationship Support**: Preload related data with GORM associations
-- **Upsert Operations**: Smart create/update operations for data consistency
+- **Invalid ID Tracking**: Skips hotel IDs that consistently fail
 
 ## 🚀 Getting Started
 
-### Running the Applications
+### Prerequisites
+- Go 1.23+
+- Amadeus API credentials (test or production)
 
-#### Main Application
+### Environment Variables
+
+Create a `.env` file in the project root:
+
 ```bash
-go build -o alpaca
-./alpaca
+# Amadeus API Credentials
+AMD=your_client_id
+AMS=your_client_secret
+
+# Optional: Override default API URLs
+AMADEUS_HOTEL_LIST_URL=https://test.api.amadeus.com/v1/reference-data/locations/hotels/by-city
+AMADEUS_HOTEL_SEARCH_URL=https://test.api.amadeus.com/v2/shopping/hotel-offers
+AMADEUS_HOTEL_RATINGS_URL=https://test.api.amadeus.com/v2/e-reputation/hotel-sentiments
+
+# Optional: Database path (defaults to ./alpaca.db)
+SQLITE_DB_PATH=./alpaca.db
+
+# Optional: Search radius configuration
+HOTEL_SEARCH_RADIUS=100
+HOTEL_SEARCH_RADIUS_UNIT=MILE
 ```
 
-#### Hotel Data Worker
+### Running the Service
+
 ```bash
 cd worker-alpaca
 go build -o worker-alpaca
 ./worker-alpaca
 ```
 
-### API Endpoints
+The service will:
+1. Connect to SQLite database (creates if doesn't exist)
+2. Fetch hotel list for Austin, TX (default city)
+3. Fetch detailed search data for all hotels
+4. Fetch ratings data for test hotel IDs
 
-#### Hotel Endpoints (Public)
-- `GET /api/v1/hotels` - List all hotels
-- `GET /api/v1/hotels?withDetails=true` - List hotels with search and ratings data
-- `GET /api/v1/hotels/{hotelId}` - Get specific hotel
-- `GET /api/v1/hotels/{hotelId}?withDetails=true` - Get hotel with search and ratings data
-- `GET /api/v1/hotels/city/{cityName}` - Get hotels by city
-- `GET /api/v1/hotels/city/{cityName}?withDetails=true` - Get hotels by city with details
+## Database Schema
 
-#### Advanced Hotel Endpoints
-- `GET /api/v1/hotels/complete` - Get hotels with complete data (all three types)
-- `GET /api/v1/hotels/with-search` - Get hotels that have search data
-- `GET /api/v1/hotels/with-ratings` - Get hotels that have ratings data
+The service uses a simple normalized schema with three main tables:
 
-## 🔧 Technical Implementation
-
-### Worker Architecture
-The worker implements a three-phase data collection strategy:
-
-1. **Phase 1**: Fetch basic hotel list with pagination
-2. **Phase 2**: Extract hotel IDs for detailed processing
-3. **Phase 3**: Concurrently fetch search data (5 concurrent requests)
-4. **Phase 4**: Concurrently fetch ratings data (5 concurrent requests)
-
-### Concurrency Features
-- **Semaphore Limiting**: Maximum 5 concurrent API requests
-- **WaitGroup Synchronization**: Proper goroutine coordination
-- **Mutex Protection**: Thread-safe counters and shared state
-- **Rate Limiting**: 100ms for list API, 200ms for search/ratings APIs
-
-### Database Schema with Foreign Keys
 ```sql
--- Basic hotel information (Parent Table)
-hotel_api_items (
-  id, created_at, updated_at, deleted_at,
-  type, hotel_id (UNIQUE), chain_code, dupe_id, name, iata_code,
-  address (JSON), geo_code (JSON), distance (JSON), last_update
-)
+-- Basic hotel information
+CREATE TABLE hotels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hotel_id TEXT UNIQUE NOT NULL,
+    type TEXT,
+    chain_code TEXT,
+    dupe_id INTEGER,
+    name TEXT,
+    iata_code TEXT,
+    address TEXT,        -- JSON stored as TEXT
+    geo_code TEXT,      -- JSON stored as TEXT
+    distance TEXT,      -- JSON stored as TEXT
+    last_update TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
--- Detailed hotel metadata (Child Table)
-hotel_search_data (
-  id, created_at, updated_at, deleted_at,
-  type, hotel_id (UNIQUE, FOREIGN KEY), chain_code, dupe_id, name, rating, official_rating,
-  description (JSON), media (JSON), amenities (JSON), address (JSON),
-  contact (JSON), policies (JSON), available, offers (JSON), self,
-  hotel_distance (JSON), last_update
-)
+-- Detailed hotel metadata
+CREATE TABLE hotel_search_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hotel_id TEXT UNIQUE NOT NULL,
+    type TEXT,
+    chain_code TEXT,
+    dupe_id INTEGER,
+    name TEXT,
+    rating INTEGER,
+    official_rating INTEGER,
+    description TEXT,   -- JSON stored as TEXT
+    media TEXT,         -- JSON stored as TEXT
+    amenities TEXT,     -- JSON stored as TEXT
+    address TEXT,      -- JSON stored as TEXT
+    contact TEXT,       -- JSON stored as TEXT
+    policies TEXT,      -- JSON stored as TEXT
+    available INTEGER DEFAULT 0,
+    offers TEXT,        -- JSON stored as TEXT
+    self TEXT,
+    hotel_distance TEXT, -- JSON stored as TEXT
+    last_update TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (hotel_id) REFERENCES hotels(hotel_id)
+);
 
--- Guest ratings and sentiment (Child Table)
-hotel_ratings_data (
-  id, created_at, updated_at, deleted_at,
-  type, hotel_id (UNIQUE, FOREIGN KEY), number_of_reviews, number_of_ratings, overall_rating,
-  sentiments (JSON), last_update
-)
+-- Guest ratings and sentiment
+CREATE TABLE hotel_ratings_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hotel_id TEXT UNIQUE NOT NULL,
+    type TEXT,
+    number_of_reviews INTEGER,
+    number_of_ratings INTEGER,
+    overall_rating INTEGER,
+    sentiments TEXT,    -- JSON stored as TEXT
+    last_update TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (hotel_id) REFERENCES hotels(hotel_id)
+);
+
+-- Track invalid hotel IDs to skip in future runs
+CREATE TABLE invalid_hotel_search_ids (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hotel_id TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-### GORM Relationships
+## API Provider Interface
+
+The service uses a generalized `HotelAPIProvider` interface, making it easy to add new hotel data sources:
+
 ```go
-// Parent table with relationships
-type HotelAPIItem struct {
-    // ... fields ...
-    SearchData  *HotelSearchData  `gorm:"foreignKey:HotelID;references:HotelID"`
-    RatingsData *HotelRatingsData `gorm:"foreignKey:HotelID;references:HotelID"`
-}
-
-// Child tables with back-references
-type HotelSearchData struct {
-    // ... fields ...
-    Hotel *HotelAPIItem `gorm:"foreignKey:HotelID;references:HotelID"`
-}
-
-type HotelRatingsData struct {
-    // ... fields ...
-    Hotel *HotelAPIItem `gorm:"foreignKey:HotelID;references:HotelID"`
+type HotelAPIProvider interface {
+    GetOAuthToken(ctx context.Context) (string, error)
+    FetchHotelsList(ctx context.Context, cityCode string, token string) ([]models.HotelAPIItem, string, error)
+    FetchHotelSearchData(ctx context.Context, hotelID string, token string) (*models.HotelSearchData, error)
+    FetchHotelRatingsData(ctx context.Context, hotelID string, token string) (*models.HotelRatingsData, error)
 }
 ```
 
-## 🏗️ Project Structure
+Currently implemented:
+- `AmadeusProvider`: Full Amadeus API integration
 
-```
-alpaca/
-├── main.go                 # Main application entry point
-├── worker-alpaca/
-│   └── main.go            # Hotel data worker
-├── models/
-│   └── hotel.go           # Hotel data models with GORM relationships
-├── services/
-│   └── hotel_service.go   # Hotel business logic with relationship support
-├── handlers/
-│   └── hotel.go           # HTTP handlers with detailed data endpoints
-├── database/
-│   └── database.go        # Database factory
-└── server/
-    └── server.go          # Server configuration
-```
+Future providers can be added by implementing this interface.
 
-## 🔄 Data Flow
+## Data Flow
 
-1. **Worker fetches hotel list** from Amadeus by city (Austin, TX)
-2. **Basic hotel data** is stored in `hotel_api_items` table
-3. **Worker extracts hotel IDs** for detailed processing
-4. **Concurrent goroutines** fetch search and ratings data
-5. **Detailed data** is stored in respective tables with foreign key constraints
-6. **Main application** serves data via REST API endpoints with relationship support
+1. **OAuth Token**: Service authenticates with Amadeus API
+2. **Hotel List**: Fetches basic hotel data by city (with pagination)
+3. **Hotel IDs**: Extracts all hotel IDs for detailed processing
+4. **Search Data**: Concurrently fetches detailed hotel metadata (5 concurrent requests)
+5. **Ratings Data**: Concurrently fetches ratings and sentiment data (1 concurrent request for rate limiting)
 
-## 🎯 Future Enhancements
+## Performance Features
 
-- **STAR Schema**: Analytical data warehouse for complex queries
-- **Real-time Updates**: WebSocket notifications for data changes
-- **Caching Layer**: Redis integration for performance
-- **Analytics Dashboard**: Hotel performance metrics
-- **Multi-city Support**: Expand beyond Austin to other cities
-
-## 📊 Performance Features
-
-- **Concurrent Processing**: 5x faster data fetching
-- **Rate Limiting**: API-friendly request patterns
-- **Pagination Handling**: Efficient memory usage
-- **Database Indexing**: Optimized query performance with foreign key indexes
+- **Concurrent Processing**: 5x faster data fetching with goroutines
+- **Rate Limiting**: API-friendly request patterns (100-200ms delays)
+- **Pagination Handling**: Efficient memory usage for large datasets
+- **Database Indexing**: Optimized query performance
 - **Error Recovery**: Graceful handling of API failures
-- **Relationship Queries**: Efficient joins using GORM preloading
+- **Invalid ID Tracking**: Skips problematic hotel IDs automatically
 
-## 🔒 Security
+## Next Steps & Recommendations
 
-- **Environment Variables**: Secure credential management
-- **API Rate Limiting**: Prevents API abuse
-- **Input Validation**: Sanitized API parameters
-- **Database Isolation**: Separate user and hotel data
-- **Referential Integrity**: Foreign key constraints prevent orphaned records
+### Database Backend Options
 
-## 🚀 Planned Analytics & AI Integration
+1. **SQLite (Current)**: Good for development and small datasets
+   - Pros: Simple, no server needed, fast for reads
+   - Cons: Limited concurrency, not ideal for high write loads
 
-### STAR Schema Architecture
-The hotel data will be transformed into a STAR schema for advanced analytics:
+2. **PostgreSQL**: Recommended for production
+   - Pros: Better concurrency, JSON support, full SQL features
+   - Cons: Requires server setup
 
-- **Fact Tables**: Hotel metrics, ratings, availability trends
-- **Dimension Tables**: Hotels, locations, amenities, time periods
-- **Analytics Layer**: Aggregated KPIs and business intelligence
+3. **AWS Redshift**: For analytics workloads
+   - Pros: Columnar storage, optimized for analytics
+   - Cons: More complex setup, better for read-heavy analytics
 
-### Go AI Service
-A dedicated Go service will handle LLM inference for hotel analytics:
+4. **MongoDB**: If you need document flexibility
+   - Pros: Native JSON, flexible schema
+   - Cons: Different query model, may need to rethink relationships
 
-- **Library**: `github.com/sashabaranov/go-openai` for OpenAI API integration
-- **Primary LLM**: GPT-4 for advanced hotel analysis and recommendations
-- **Alternative LLMs**: Claude (Anthropic) and Grok (X) for comparison
-- **Use Cases**: 
-  - Hotel recommendation engine
-  - Sentiment analysis insights
-  - Pricing optimization suggestions
-  - Guest experience predictions
+**Recommendation**: Start with SQLite for development, migrate to PostgreSQL for production. The raw SQL approach makes migration straightforward.
 
-### Implementation Plan
-1. **STAR Schema Migration**: Transform current normalized data
-2. **Analytics Service**: Go service with REST API endpoints
-3. **LLM Integration**: OpenAI GPT-4 API with fallback options
-4. **Real-time Inference**: WebSocket connections for live recommendations
+### Code Simplification Opportunities
 
----
+1. **Struct Simplification**: 
+   - Consider flattening some nested JSON structures
+   - Remove unused fields from API responses
+   - Create separate structs for database vs API models
 
-## Legacy Features
+2. **Database Code**:
+   - Add connection pooling configuration
+   - Implement prepared statements for better performance
+   - Add transaction support for batch operations
 
-### Current Implemented
-- Code from Platzi Advanced Go and Websockets Go courses
-- Websockets Hub for single direction messaging
-- HTTP Gorilla Mux server
-- Docker support
+3. **Error Handling**:
+   - Create custom error types for better error handling
+   - Add retry logic with exponential backoff
+   - Implement circuit breaker pattern for API calls
 
-### In Progress
-- Docker build and optimization
-- Advanced analytics and reporting
+4. **Configuration**:
+   - Move hardcoded values to config file
+   - Add validation for environment variables
+   - Support multiple city codes
 
-### Deployed
-- Deployed on Oracle Cloud server using Cloud Init with Docker
+5. **Testing**:
+   - Add unit tests for database operations
+   - Add integration tests for API provider
+   - Mock external API calls for testing
+
+## Development
+
+### Building
+
+```bash
+go build -o worker-alpaca ./worker-alpaca
+```
+
+### Running Tests
+
+```bash
+go test ./...
+```
+
+### Code Style
+
+The project follows standard Go conventions:
+- Use `gofmt` for formatting
+- Use `golint` for linting
+- Follow Go naming conventions
+
+## License
+
+MIT
