@@ -1,11 +1,15 @@
 # Alpaca - Hotel Data Microservice
 
-A simplified Go microservice that fetches and consolidates hotel data from external APIs. Currently supports the Amadeus API with a generalized architecture for easy extension to other hotel data providers.
+A comprehensive Go microservice that fetches, consolidates, and analyzes hotel data from multiple sources. Features multi-source data aggregation, review crawling, and LLM-powered recommendation analysis.
 
 ## Architecture
 
 Alpaca is a single microservice that:
-- Fetches hotel data from external APIs (currently Amadeus)
+- Fetches hotel data from multiple sources (Amadeus, Expedia, Tripadvisor, Google, Booking.com)
+- Consolidates hotel data into a unified schema
+- Crawls reviews from multiple sources (Tripadvisor, Google, Expedia, Booking, hotel websites, etc.)
+- Uses LLM (GPT-4, Claude, Grok) to analyze reviews for Quality and Quiet
+- Generates intelligent recommendations based on review analysis
 - Stores data in SQLite (default) with raw SQL
 - Uses a generalized provider interface for easy API integration
 - Processes data in concurrent batches with rate limiting
@@ -14,18 +18,27 @@ Alpaca is a single microservice that:
 
 ```
 alpaca/
-├── worker-alpaca/
-│   ├── main.go              # Main entry point - hotel data worker
-│   ├── generate_cities.go   # City data generation utility
-│   └── generated_top_cities.go  # Generated top cities data
-├── models/
-│   └── hotel.go             # Hotel data models (no ORM dependencies)
-├── services/
-│   └── hotel_service.go     # Hotel business logic with raw SQL
-├── database/
-│   └── database.go          # SQLite database connection and schema
-└── utils/
-    └── constants.go        # Constants and test data
+├── alpaca/
+│   ├── main.go                    # Main entry point - hotel data worker
+│   ├── generate_cities.go         # City data generation utility (reference)
+│   ├── generated_top_cities.go    # Generated top cities data (reference)
+│   ├── REVIEW_PROCESSING.md       # Review processing documentation
+│   ├── models/
+│   │   ├── hotel.go              # Original Amadeus hotel models
+│   │   └── hotel_extended.go     # Extended hotel models with recommendations
+│   ├── services/
+│   │   ├── hotel_service.go      # Hotel business logic (Amadeus)
+│   │   ├── hotel_service_extended.go  # Extended hotel service (multi-source)
+│   │   ├── review_crawler.go     # Review crawling from multiple sources
+│   │   ├── llm_service.go        # LLM integration (GPT-4, Claude, Grok)
+│   │   └── recommendation_service.go  # Recommendation orchestration
+│   ├── database/
+│   │   └── database.go           # SQLite database connection and schema
+│   └── utils/
+│       └── constants.go          # Constants and test data
+├── go.mod                    # Go module definition
+├── Dockerfile               # Docker build configuration
+└── README.md                # This file
 ```
 
 ## Features
@@ -36,10 +49,23 @@ alpaca/
 - **SQLite First**: Simple, file-based database (easy to migrate to Postgres/Redshift later)
 - **Generalized API Interface**: Easy to add new hotel data providers
 
-### ✅ Hotel Data Collection
-- **Amadeus Hotel List API**: Fetches hotels by city with pagination
-- **Amadeus Hotel Search API**: Retrieves detailed hotel information
-- **Amadeus Hotel Ratings API**: Gets guest sentiment and ratings
+### ✅ Multi-Source Hotel Data Collection
+- **Amadeus API**: Hotel list, search, and ratings data
+- **Expedia**: Hotel listings and reviews (interface ready)
+- **Tripadvisor**: Hotel data and reviews (interface ready)
+- **Google Places**: Hotel data and reviews (interface ready)
+- **Booking.com**: Hotel data and reviews (interface ready)
+- **Consolidated Schema**: Unified hotel table with ratings from all sources
+
+### ✅ Review Processing & LLM Analysis
+- **Multi-Source Review Crawling**: Automatically fetches reviews from:
+  - Tripadvisor, Google, Expedia, Booking.com
+  - Hotel websites, Bing, Yelp
+- **LLM-Powered Analysis**: Uses GPT-4, Claude, or Grok to analyze reviews
+- **Quality Detection**: Identifies hotels with excellent service, cleanliness, amenities
+- **Quiet Detection**: Identifies quiet, peaceful hotels away from noise
+- **Intelligent Recommendations**: Combines quality and quiet analysis for recommendations
+- **Admin Override**: Admin flag to enable/disable hotels regardless of analysis
 
 ### ✅ Advanced Processing
 - **Proper Pagination**: Handles multi-page API responses automatically
@@ -79,9 +105,16 @@ HOTEL_SEARCH_RADIUS_UNIT=MILE
 ### Running the Service
 
 ```bash
-cd worker-alpaca
-go build -o worker-alpaca
-./worker-alpaca
+go build -o alpaca ./alpaca/alpaca
+./alpaca
+```
+
+Or from the alpaca/alpaca directory:
+
+```bash
+cd alpaca/alpaca
+go build -o alpaca
+./alpaca
 ```
 
 The service will:
@@ -196,6 +229,31 @@ Future providers can be added by implementing this interface.
 - **Error Recovery**: Graceful handling of API failures
 - **Invalid ID Tracking**: Skips problematic hotel IDs automatically
 
+## Review Processing
+
+See [REVIEW_PROCESSING.md](alpaca/REVIEW_PROCESSING.md) for detailed documentation on:
+- Review crawling from multiple sources
+- LLM analysis for Quality and Quiet detection
+- Recommendation generation
+- Usage examples
+
+### Quick Start - Review Processing
+
+```go
+// Initialize services
+db, _ := database.NewDatabase()
+hotelService := services.NewHotelService(db)
+reviewCrawler := services.NewReviewCrawlerService(db)
+llmProvider := services.NewOpenAIProvider(os.Getenv("OPENAI_API_KEY"))
+llmService := services.NewLLMService(llmProvider)
+recommendationService := services.NewRecommendationService(
+    hotelService, reviewCrawler, llmService,
+)
+
+// Process recommendations for a hotel
+err := recommendationService.ProcessHotelRecommendations(ctx, "hotel-id")
+```
+
 ## Next Steps & Recommendations
 
 ### Database Backend Options
@@ -250,7 +308,7 @@ Future providers can be added by implementing this interface.
 ### Building
 
 ```bash
-go build -o worker-alpaca ./worker-alpaca
+go build -o alpaca ./alpaca/alpaca
 ```
 
 ### Running Tests

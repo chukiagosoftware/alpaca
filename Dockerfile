@@ -4,20 +4,20 @@ FROM golang:1.23-alpine AS builder
 # Install build dependencies
 RUN apk add --no-cache git gcc musl-dev sqlite-dev
 
-# Set working directory
-WORKDIR /app
+# Set working directory to the alpaca/alpaca directory
+WORKDIR /app/alpaca/alpaca
 
 # Copy go mod files
-COPY go.mod go.sum ./
+COPY alpaca/alpaca/go.mod alpaca/alpaca/go.sum ./
 
 # Download dependencies
 RUN go mod download
 
 # Copy source code
-COPY . .
+COPY alpaca/alpaca/ .
 
 # Build the application
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o worker-alpaca ./worker-alpaca
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o /app/alpaca .
 
 # Runtime stage
 FROM alpine:latest
@@ -29,7 +29,7 @@ RUN apk add --no-cache ca-certificates sqlite
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /app/worker-alpaca .
+COPY --from=builder /app/alpaca .
 
 # Copy .env file if it exists (optional - can also use environment variables)
 # COPY .env .env
@@ -41,4 +41,4 @@ RUN mkdir -p /app/data
 ENV SQLITE_DB_PATH=/app/data/alpaca.db
 
 # Run the application
-CMD ["./worker-alpaca"]
+CMD ["./alpaca"]
