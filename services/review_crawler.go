@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chukiagosoftware/alpaca/alpaca/database"
-	"github.com/chukiagosoftware/alpaca/alpaca/models"
+	"github.com/chukiagosoftware/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/models"
 )
 
 // ReviewCrawlerService handles crawling reviews from multiple sources

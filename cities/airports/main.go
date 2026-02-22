@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/chukiagosoftware/alpaca/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/database"
 	"github.com/joho/godotenv"
 )
 

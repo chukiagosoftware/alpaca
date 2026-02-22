@@ -74,6 +74,7 @@ func createTables(db *sql.DB) error {
 		longitude REAL,
 		street_address TEXT,
 		postal_code TEXT,
+		state_code TEXT,
 		phone TEXT,
 		website TEXT,
 		email TEXT,
@@ -228,6 +229,40 @@ func createTables(db *sql.DB) error {
 
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create tables: %w", err)
+	}
+
+	// Check if state_code column exists in hotels table, add if missing
+	rows, err := db.Query("PRAGMA table_info(hotels)")
+	if err != nil {
+		return fmt.Errorf("failed to query table info: %w", err)
+	}
+	defer rows.Close()
+
+	hasStateCode := false
+	for rows.Next() {
+		var cid int
+		var name string
+		var ctype string
+		var notnull int
+		var dflt_value interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt_value, &pk); err != nil {
+			return fmt.Errorf("failed to scan table info: %w", err)
+		}
+		if name == "state_code" {
+			hasStateCode = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating table info: %w", err)
+	}
+
+	if !hasStateCode {
+		if _, err := db.Exec("ALTER TABLE hotels ADD COLUMN state_code TEXT;"); err != nil {
+			return fmt.Errorf("failed to add state_code column: %w", err)
+		}
+		log.Println("Added state_code column to hotels table")
 	}
 
 	return nil

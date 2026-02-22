@@ -13,6 +13,7 @@ type Hotel struct {
 	Name          string   `json:"name"`
 	City          string   `json:"city"`
 	Country       string   `json:"country"`
+	StateCode     string   `json:"state"`
 	Latitude      *float64 `json:"latitude,omitempty"`
 	Longitude     *float64 `json:"longitude,omitempty"`
 	StreetAddress string   `json:"streetAddress,omitempty"`

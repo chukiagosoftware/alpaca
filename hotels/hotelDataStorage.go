@@ -1,25 +1,34 @@
-package services
+package main
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 
-	"github.com/chukiagosoftware/alpaca/alpaca/models"
+	"github.com/chukiagosoftware/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/models"
 )
 
-// CreateOrUpdateHotel creates or updates a hotel in the consolidated hotels table
-func (s *HotelService) CreateOrUpdateHotel(ctx context.Context, hotel *models.Hotel) error {
+type hotelStorage struct {
+	db *database.DB
+}
+
+func newHotelStorage(db *database.DB) *hotelStorage {
+	return &hotelStorage{db: db}
+}
+
+// createOrUpdateHotel creates or updates a hotel in the consolidated hotels table
+func (s *hotelStorage) createOrUpdateHotel(ctx context.Context, hotel *models.Hotel) error {
 	query := `
 		INSERT INTO hotels (
 			hotel_id, source, source_hotel_id, name, city, country,
-			latitude, longitude, street_address, postal_code, phone, website, email,
+			latitude, longitude, street_address, postal_code, state_code, phone, website, email,
 			amadeus_rating, expedia_rating, tripadvisor_rating, google_rating, booking_rating,
 			recommended, admin_flag, quality, quiet, important_note,
 			type, chain_code, dupe_id, iata_code, address_json, geo_code_json, distance_json,
 			last_update
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(hotel_id) DO UPDATE SET
 			source = excluded.source,
 			source_hotel_id = excluded.source_hotel_id,
@@ -30,6 +39,7 @@ func (s *HotelService) CreateOrUpdateHotel(ctx context.Context, hotel *models.Ho
 			longitude = excluded.longitude,
 			street_address = excluded.street_address,
 			postal_code = excluded.postal_code,
+		    state_code = excluded.state_code,
 			phone = excluded.phone,
 			website = excluded.website,
 			email = excluded.email,
@@ -78,6 +88,7 @@ func (s *HotelService) CreateOrUpdateHotel(ctx context.Context, hotel *models.Ho
 		hotel.Longitude,
 		hotel.StreetAddress,
 		hotel.PostalCode,
+		hotel.StateCode,
 		hotel.Phone,
 		hotel.Website,
 		hotel.Email,
@@ -103,8 +114,37 @@ func (s *HotelService) CreateOrUpdateHotel(ctx context.Context, hotel *models.Ho
 	return err
 }
 
-// UpdateRecommendationFields updates the recommendation fields for a hotel
-func (s *HotelService) UpdateRecommendationFields(ctx context.Context, hotelID string, recommended, quality, quiet bool, importantNote string) error {
+// updateHotelRating updates rating from a specific source
+func (s *hotelStorage) updateHotelRating(ctx context.Context, hotelID, source string, rating float64) error {
+	var column string
+	switch source {
+	case models.HotelSourceAmadeus:
+		column = "amadeus_rating"
+	case models.HotelSourceExpedia:
+		column = "expedia_rating"
+	case models.HotelSourceTripadvisor:
+		column = "tripadvisor_rating"
+	case models.HotelSourceGoogle:
+		column = "google_rating"
+	case models.HotelSourceBooking:
+		column = "booking_rating"
+	default:
+		return fmt.Errorf("unknown source: %s", source)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE hotels
+		SET %s = ?,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE hotel_id = ?
+	`, column)
+
+	_, err := s.db.ExecContext(ctx, query, rating, hotelID)
+	return err
+}
+
+// updateRecommendationFields updates the recommendation fields for a hotel
+func (s *hotelStorage) updateRecommendationFields(ctx context.Context, hotelID string, recommended, quality, quiet bool, importantNote string) error {
 	query := `
 		UPDATE hotels
 		SET recommended = ?,
@@ -132,8 +172,8 @@ func (s *HotelService) UpdateRecommendationFields(ctx context.Context, hotelID s
 	return err
 }
 
-// UpdateAdminFlag updates the admin flag for a hotel
-func (s *HotelService) UpdateAdminFlag(ctx context.Context, hotelID string, disabled bool) error {
+// updateAdminFlag updates the admin flag for a hotel
+func (s *hotelStorage) updateAdminFlag(ctx context.Context, hotelID string, disabled bool) error {
 	query := `
 		UPDATE hotels
 		SET admin_flag = ?,
@@ -150,11 +190,11 @@ func (s *HotelService) UpdateAdminFlag(ctx context.Context, hotelID string, disa
 	return err
 }
 
-// GetHotel retrieves a hotel by ID
-func (s *HotelService) GetHotel(ctx context.Context, hotelID string) (*models.Hotel, error) {
+// getHotel retrieves a hotel by ID
+func (s *hotelStorage) getHotel(ctx context.Context, hotelID string) (*models.Hotel, error) {
 	query := `
 		SELECT id, hotel_id, source, source_hotel_id, name, city, country,
-		       latitude, longitude, street_address, postal_code, phone, website, email,
+		       latitude, longitude, street_address, postal_code, state_code, phone, website, email,
 		       amadeus_rating, expedia_rating, tripadvisor_rating, google_rating, booking_rating,
 		       recommended, admin_flag, quality, quiet, important_note,
 		       type, chain_code, dupe_id, iata_code, last_update, created_at, updated_at
@@ -177,6 +217,7 @@ func (s *HotelService) GetHotel(ctx context.Context, hotelID string) (*models.Ho
 		&hotel.Longitude,
 		&hotel.StreetAddress,
 		&hotel.PostalCode,
+		&hotel.StateCode,
 		&hotel.Phone,
 		&hotel.Website,
 		&hotel.Email,
@@ -212,120 +253,4 @@ func (s *HotelService) GetHotel(ctx context.Context, hotelID string) (*models.Ho
 	hotel.Quiet = quiet == 1
 
 	return &hotel, nil
-}
-
-// SaveRecommendation saves LLM-processed recommendation
-func (s *HotelService) SaveRecommendation(ctx context.Context, rec *models.HotelRecommendation) error {
-	query := `
-		INSERT INTO hotel_recommendations (
-			hotel_id, quality_score, quality_confidence, quality_reasoning,
-			quiet_score, quiet_confidence, quiet_reasoning,
-			overall_recommended, recommendation_summary, reviews_analyzed, llm_model
-		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(hotel_id) DO UPDATE SET
-			quality_score = excluded.quality_score,
-			quality_confidence = excluded.quality_confidence,
-			quality_reasoning = excluded.quality_reasoning,
-			quiet_score = excluded.quiet_score,
-			quiet_confidence = excluded.quiet_confidence,
-			quiet_reasoning = excluded.quiet_reasoning,
-			overall_recommended = excluded.overall_recommended,
-			recommendation_summary = excluded.recommendation_summary,
-			reviews_analyzed = excluded.reviews_analyzed,
-			llm_model = excluded.llm_model,
-			updated_at = CURRENT_TIMESTAMP
-	`
-
-	overallRec := 0
-	if rec.OverallRecommended {
-		overallRec = 1
-	}
-
-	_, err := s.db.ExecContext(ctx, query,
-		rec.HotelID,
-		rec.QualityScore,
-		rec.QualityConfidence,
-		rec.QualityReasoning,
-		rec.QuietScore,
-		rec.QuietConfidence,
-		rec.QuietReasoning,
-		overallRec,
-		rec.RecommendationSummary,
-		rec.ReviewsAnalyzed,
-		rec.LLMModel,
-	)
-	return err
-}
-
-// GetRecommendation retrieves recommendation for a hotel
-func (s *HotelService) GetRecommendation(ctx context.Context, hotelID string) (*models.HotelRecommendation, error) {
-	query := `
-		SELECT id, hotel_id, quality_score, quality_confidence, quality_reasoning,
-		       quiet_score, quiet_confidence, quiet_reasoning,
-		       overall_recommended, recommendation_summary, reviews_analyzed, llm_model,
-		       processed_at, created_at, updated_at
-		FROM hotel_recommendations
-		WHERE hotel_id = ?
-	`
-
-	var rec models.HotelRecommendation
-	var overallRec int
-
-	err := s.db.QueryRowContext(ctx, query, hotelID).Scan(
-		&rec.ID,
-		&rec.HotelID,
-		&rec.QualityScore,
-		&rec.QualityConfidence,
-		&rec.QualityReasoning,
-		&rec.QuietScore,
-		&rec.QuietConfidence,
-		&rec.QuietReasoning,
-		&overallRec,
-		&rec.RecommendationSummary,
-		&rec.ReviewsAnalyzed,
-		&rec.LLMModel,
-		&rec.ProcessedAt,
-		&rec.CreatedAt,
-		&rec.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil // No recommendation yet
-		}
-		return nil, err
-	}
-
-	rec.OverallRecommended = overallRec == 1
-	return &rec, nil
-}
-
-// UpdateHotelRating updates rating from a specific source
-func (s *HotelService) UpdateHotelRating(ctx context.Context, hotelID, source string, rating float64) error {
-	var column string
-	switch source {
-	case models.HotelSourceAmadeus:
-		column = "amadeus_rating"
-	case models.HotelSourceExpedia:
-		column = "expedia_rating"
-	case models.HotelSourceTripadvisor:
-		column = "tripadvisor_rating"
-	case models.HotelSourceGoogle:
-		column = "google_rating"
-	case models.HotelSourceBooking:
-		column = "booking_rating"
-	default:
-		return fmt.Errorf("unknown source: %s", source)
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE hotels
-		SET %s = ?,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE hotel_id = ?
-	`, column)
-
-	_, err := s.db.ExecContext(ctx, query, rating, hotelID)
-	return err
 }

@@ -6,21 +6,22 @@ import (
 	"log"
 	"strings"
 
-	"github.com/chukiagosoftware/alpaca/alpaca/models"
+	"github.com/chukiagosoftware/alpaca/gpt"
+	"github.com/chukiagosoftware/alpaca/models"
 )
 
 // RecommendationService orchestrates the review crawling and LLM analysis
 type RecommendationService struct {
-	hotelService  *HotelService
+	hotelService  *hotelService
 	reviewCrawler *ReviewCrawlerService
-	llmService    *LLMService
+	llmService    *gpt.LLMService
 }
 
 // NewRecommendationService creates a new recommendation service
 func NewRecommendationService(
-	hotelService *HotelService,
+	hotelService *hotelService,
 	reviewCrawler *ReviewCrawlerService,
-	llmService *LLMService,
+	llmService *gpt.LLMService,
 ) *RecommendationService {
 	return &RecommendationService{
 		hotelService:  hotelService,

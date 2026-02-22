@@ -242,7 +242,7 @@ See [REVIEW_PROCESSING.md](alpaca/REVIEW_PROCESSING.md) for detailed documentati
 ```go
 // Initialize services
 db, _ := database.NewDatabase()
-hotelService := services.NewHotelService(db)
+hotelService := services.NewhotelService(db)
 reviewCrawler := services.NewReviewCrawlerService(db)
 llmProvider := services.NewOpenAIProvider(os.Getenv("OPENAI_API_KEY"))
 llmService := services.NewLLMService(llmProvider)

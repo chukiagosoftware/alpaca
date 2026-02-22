@@ -94,7 +94,7 @@ The system crawls reviews from:
 ```go
 // Initialize services
 db, _ := database.NewDatabase()
-hotelService := services.NewHotelService(db)
+hotelService := services.NewhotelService(db)
 reviewCrawler := services.NewReviewCrawlerService(db)
 llmProvider := services.NewOpenAIProvider("your-api-key")
 llmService := services.NewLLMService(llmProvider)

@@ -1,4 +1,4 @@
-module github.com/chukiagosoftware/alpaca/alpaca
+module github.com/chukiagosoftware/alpaca
 
 go 1.23.0
 
