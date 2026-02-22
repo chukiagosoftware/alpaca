@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/edamsoft-sre/alpaca/alpaca/models"
+	"github.com/chukiagosoftware/alpaca/alpaca/models"
 )
 
 // RecommendationService orchestrates the review crawling and LLM analysis

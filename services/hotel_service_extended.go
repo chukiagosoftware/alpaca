@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/edamsoft-sre/alpaca/alpaca/models"
+	"github.com/chukiagosoftware/alpaca/alpaca/models"
 )
 
 // CreateOrUpdateHotel creates or updates a hotel in the consolidated hotels table

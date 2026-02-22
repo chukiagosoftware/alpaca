@@ -1,4 +1,4 @@
-module github.com/edamsoft-sre/alpaca/alpaca
+module github.com/chukiagosoftware/alpaca/alpaca
 
 go 1.23.0
 

@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edamsoft-sre/alpaca/alpaca/database"
-	"github.com/edamsoft-sre/alpaca/alpaca/models"
-	"github.com/edamsoft-sre/alpaca/alpaca/services"
-	"github.com/edamsoft-sre/alpaca/alpaca/utils"
+	"github.com/chukiagosoftware/alpaca/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/alpaca/models"
+	"github.com/chukiagosoftware/alpaca/alpaca/services"
+	"github.com/chukiagosoftware/alpaca/alpaca/utils"
 	"github.com/joho/godotenv"
 )
 
@@ -384,18 +384,6 @@ func main() {
 		_ = godotenv.Load(".env")
 	}
 
-	// Generate top cities data (uncomment to regenerate)
-	if err := GenerateTopCities(); err != nil {
-		log.Printf("Warning: Failed to generate top cities: %v", err)
-	}
-
-	apiClient := os.Getenv("AMD")
-	apiSecret := os.Getenv("AMS")
-
-	if apiClient == "" || apiSecret == "" {
-		log.Fatal("AMD and AMS environment variables are required")
-	}
-
 	// Initialize database
 	db, err := database.NewDatabase()
 	if err != nil {
@@ -406,51 +394,101 @@ func main() {
 	// Initialize services
 	hotelService := services.NewHotelService(db)
 
-	// Initialize API provider
-	provider := NewAmadeusProvider(apiClient, apiSecret)
-
 	ctx := context.Background()
 
-	// Step 1: Fetch hotel list using V1 API
-	log.Println("=== Step 1: Fetching hotel list ===")
-	cityCode := "AUS" // Default to Austin, can be made configurable
-	hotelsCreated, err := fetchHotelsListPaginated(ctx, provider, hotelService, cityCode)
+	// Get location from environment or use default
+	location := os.Getenv("HOTEL_SEARCH_LOCATION")
+	if location == "" {
+		location = "Austin, Texas"
+	}
+
+	// =================================================================
+	// STEP 1: Fetch from multiple sources (Google, Expedia, Booking, TripAdvisor)
+	// =================================================================
+	log.Println("=== Step 1: Fetching hotels from multiple sources ===")
+	multiSourceFetcher := services.NewMultiSourceFetcher(hotelService)
+	multiSourceResults, err := multiSourceFetcher.FetchFromAllSources(ctx, location)
 	if err != nil {
-		log.Printf("Error fetching hotel list: %v", err)
+		log.Printf("Error in multi-source fetch: %v", err)
+	}
+
+	log.Println("Multi-source fetch results:")
+	totalMultiSource := 0
+	for source, count := range multiSourceResults {
+		log.Printf("  %s: %d hotels", source, count)
+		totalMultiSource += count
+	}
+	log.Printf("Total from all sources: %d hotels", totalMultiSource)
+
+	// =================================================================
+	// STEP 2: Fetch from Amadeus API (before it expires in June)
+	// =================================================================
+	apiClient := os.Getenv("AMD")
+	apiSecret := os.Getenv("AMS")
+
+	amadeusHotelsCreated := 0
+	amadeusSearchCreated := 0
+	amadeusRatingsCreated := 0
+
+	if apiClient != "" && apiSecret != "" {
+		log.Println("\n=== Step 2: Fetching from Amadeus API ===")
+		provider := NewAmadeusProvider(apiClient, apiSecret)
+
+		// Step 2a: Fetch hotel list using V1 API
+		log.Println("=== Step 2a: Fetching Amadeus hotel list ===")
+		cityCode := os.Getenv("AMADEUS_CITY_CODE")
+		if cityCode == "" {
+			cityCode = "AUS" // Default to Austin
+		}
+
+		amadeusHotelsCreated, err = fetchHotelsListPaginated(ctx, provider, hotelService, cityCode)
+		if err != nil {
+			log.Printf("Error fetching Amadeus hotel list: %v", err)
+		} else {
+			log.Printf("Successfully fetched %d hotels from Amadeus", amadeusHotelsCreated)
+		}
+
+		// Step 2b: Get hotel IDs for further processing
+		log.Println("=== Step 2b: Getting hotel IDs for detailed data ===")
+		hotelIDs, err := hotelService.GetHotelIDs(ctx)
+		if err != nil {
+			log.Printf("Error getting hotel IDs: %v", err)
+		} else {
+			log.Printf("Retrieved %d hotel IDs for processing", len(hotelIDs))
+
+			// Step 2c: Fetch hotel search data using V2 API
+			log.Println("=== Step 2c: Fetching Amadeus hotel search data ===")
+			amadeusSearchCreated, err = fetchHotelSearchData(ctx, provider, hotelService, hotelIDs)
+			if err != nil {
+				log.Printf("Error fetching hotel search data: %v", err)
+			} else {
+				log.Printf("Successfully fetched search data for %d hotels", amadeusSearchCreated)
+			}
+
+			// Step 2d: Fetch hotel ratings data using V2 API
+			log.Println("=== Step 2d: Fetching Amadeus hotel ratings data ===")
+			amadeusRatingsCreated, err = fetchHotelRatingsData(ctx, provider, hotelService, utils.TestHotelIDs)
+			if err != nil {
+				log.Printf("Error fetching hotel ratings data: %v", err)
+			} else {
+				log.Printf("Successfully fetched ratings data for %d hotels", amadeusRatingsCreated)
+			}
+		}
 	} else {
-		log.Printf("Successfully fetched %d hotels total", hotelsCreated)
+		log.Println("=== Step 2: Skipping Amadeus API (credentials not provided) ===")
 	}
 
-	// Step 2: Get hotel IDs for further processing
-	log.Println("=== Step 2: Getting hotel IDs ===")
-	hotelIDs, err := hotelService.GetHotelIDs(ctx)
-	if err != nil {
-		log.Printf("Error getting hotel IDs: %v", err)
-		return
+	// =================================================================
+	// FINAL SUMMARY
+	// =================================================================
+	log.Println("\n=== FINAL SUMMARY ===")
+	log.Printf("Multi-source providers:")
+	for source, count := range multiSourceResults {
+		log.Printf("  %s: %d hotels", source, count)
 	}
-	log.Printf("Retrieved %d hotel IDs for processing", len(hotelIDs))
-
-	// Step 3: Fetch hotel search data using V2 API
-	log.Println("=== Step 3: Fetching hotel search data ===")
-	searchCreated, err := fetchHotelSearchData(ctx, provider, hotelService, hotelIDs)
-	if err != nil {
-		log.Printf("Error fetching hotel search data: %v", err)
-	} else {
-		log.Printf("Successfully fetched search data for %d hotels", searchCreated)
-	}
-
-	// Step 4: Fetch hotel ratings data using V2 API (using test hotel IDs for now)
-	log.Println("=== Step 4: Fetching hotel ratings data ===")
-	ratingsCreated, err := fetchHotelRatingsData(ctx, provider, hotelService, utils.TestHotelIDs)
-	if err != nil {
-		log.Printf("Error fetching hotel ratings data: %v", err)
-	} else {
-		log.Printf("Successfully fetched ratings data for %d hotels", ratingsCreated)
-	}
-
-	// Summary
-	log.Println("=== Summary ===")
-	log.Printf("Hotels fetched: %d", hotelsCreated)
-	log.Printf("Search data fetched: %d", searchCreated)
-	log.Printf("Ratings data fetched: %d", ratingsCreated)
+	log.Printf("Amadeus API:")
+	log.Printf("  Hotels list: %d", amadeusHotelsCreated)
+	log.Printf("  Search data: %d", amadeusSearchCreated)
+	log.Printf("  Ratings data: %d", amadeusRatingsCreated)
+	log.Printf("\nTotal hotels fetched: %d", totalMultiSource+amadeusHotelsCreated)
 }

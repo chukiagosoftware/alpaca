@@ -1,2 +1,5 @@
 *.db
 main
+.env
+.env.local
+.env.*.local

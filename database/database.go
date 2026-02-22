@@ -194,6 +194,17 @@ func createTables(db *sql.DB) error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
+	-- Airport cities table
+	CREATE TABLE IF NOT EXISTS airport_cities (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		country TEXT NOT NULL,
+		iata_code TEXT UNIQUE NOT NULL,
+		airport_count INTEGER DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
 	-- Indexes for performance
 	CREATE INDEX IF NOT EXISTS idx_hotels_hotel_id ON hotels(hotel_id);
 	CREATE INDEX IF NOT EXISTS idx_hotels_source ON hotels(source);
@@ -210,7 +221,10 @@ func createTables(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_hotel_recommendations_hotel_id ON hotel_recommendations(hotel_id);
 	CREATE INDEX IF NOT EXISTS idx_hotel_search_data_hotel_id ON hotel_search_data(hotel_id);
 	CREATE INDEX IF NOT EXISTS idx_hotel_ratings_data_hotel_id ON hotel_ratings_data(hotel_id);
-	`
+	
+	CREATE INDEX IF NOT EXISTS idx_airport_cities_iata_code ON airport_cities(iata_code);
+
+`
 
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create tables: %w", err)

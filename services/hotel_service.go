@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/edamsoft-sre/alpaca/alpaca/database"
-	"github.com/edamsoft-sre/alpaca/alpaca/models"
+	"github.com/chukiagosoftware/alpaca/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/alpaca/models"
 )
 
 type HotelService struct {

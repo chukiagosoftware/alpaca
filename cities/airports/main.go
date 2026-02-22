@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/chukiagosoftware/alpaca/alpaca/database"
+	"github.com/joho/godotenv"
 )
 
 // Airport represents an airport from the OpenFlights dataset
@@ -33,6 +37,11 @@ type City struct {
 	Name     string
 	Country  string
 	IATACode string
+}
+
+type cityCount struct {
+	city  City
+	count int
 }
 
 // downloadAirportsData downloads the OpenFlights airports dataset
@@ -116,7 +125,7 @@ func parseOpenFlightsLine(line string) []string {
 }
 
 // extractTopCities processes airports data and returns the top cities
-func extractTopCities(airports []Airport) []City {
+func extractTopCities(airports []Airport) []cityCount {
 	// Create a map to deduplicate cities and count airports per city
 	cityMap := make(map[string]int)
 	cityInfo := make(map[string]City)
@@ -149,10 +158,6 @@ func extractTopCities(airports []Airport) []City {
 	}
 
 	// Convert to slice and sort by airport count (descending)
-	type cityCount struct {
-		city  City
-		count int
-	}
 
 	var cityCounts []cityCount
 	for key, count := range cityMap {
@@ -168,38 +173,20 @@ func extractTopCities(airports []Airport) []City {
 		return cityCounts[i].city.Name < cityCounts[j].city.Name
 	})
 
-	// Extract top 500 cities
-	var topCities []City
+	// Extract top num cities
+	var topCityCounts []cityCount
 	for i, cc := range cityCounts {
-		if i >= 500 {
+		if i >= 1000 {
 			break
 		}
-		topCities = append(topCities, cc.city)
-	}
 
-	return topCities
+		topCityCounts = append(topCityCounts, cc)
+	}
+	return topCityCounts
 }
 
-// generateGoCode generates Go code for the TopCities slice
-func generateGoCode(cities []City) string {
-	var builder strings.Builder
-
-	builder.WriteString("// TopCities is a slice of the top 500 cities in the world by air traffic.\n")
-	builder.WriteString("// Generated from OpenFlights airports database.\n")
-	builder.WriteString("var TopCities = []City{\n")
-
-	for _, city := range cities {
-		builder.WriteString(fmt.Sprintf("\t{Name: \"%s\", Country: \"%s\", IATACode: \"%s\"},\n",
-			city.Name, city.Country, city.IATACode))
-	}
-
-	builder.WriteString("}\n")
-
-	return builder.String()
-}
-
-// GenerateTopCities downloads airports data and generates Go code for top cities
-func GenerateTopCities() error {
+// generateTopCities downloads airports data and generates Go code for top cities
+func generateTopCities(db *database.DB) error {
 	log.Println("Starting to generate top cities data...")
 
 	// Download airports data
@@ -209,24 +196,57 @@ func GenerateTopCities() error {
 	}
 
 	// Extract top cities
-	cities := extractTopCities(airports)
-	log.Printf("Extracted %d top cities", len(cities))
+	topCities := extractTopCities(airports)
+	log.Printf("Extracted %d top cities", len(topCities))
 
 	// Generate Go code
-	goCode := generateGoCode(cities)
+	// Insert into database
 
-	// Write to file
-	filename := "generated_top_cities.go"
-	err = os.WriteFile(filename, []byte(goCode), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write generated code: %w", err)
+	for _, cc := range topCities {
+
+		_, err := db.Exec(`INSERT OR REPLACE INTO airport_cities (name, country, iata_code, airport_count) VALUES (?, ?, ?, ?)`, cc.city.Name, cc.city.Country, cc.city.IATACode, cc.count)
+
+		if err != nil {
+
+			return fmt.Errorf("failed to insert city %s: %w", cc.city.Name, err)
+
+		}
+
 	}
 
-	log.Printf("Generated Go code written to: %s", filename)
+	log.Printf("Inserted %d cities into database", len(topCities))
+
 	log.Printf("Top 10 cities by airport count:")
-	for i, city := range cities[:10] {
-		log.Printf("%d. %s, %s (%s)", i+1, city.Name, city.Country, city.IATACode)
+
+	for i, cc := range topCities[:min(10, len(topCities))] {
+
+		log.Printf("%d. %s, %s (%s) - %d airports", i+1, cc.city.Name, cc.city.Country, cc.city.IATACode, cc.count)
+
 	}
 
 	return nil
+}
+
+func main() {
+	_, currentFile, _, _ := runtime.Caller(0)
+	// Adjust path as needed; assuming cmd/airportcities/main.go
+	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(currentFile)))
+	envPath := filepath.Join(projectRoot, ".env")
+	if err := godotenv.Load(envPath); err != nil {
+		log.Printf("Warning: Could not load .env file: %v", err)
+	}
+
+	// Initialize database
+	db, err := database.NewDatabase()
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
+
+	// Generate top cities data
+	if err := generateTopCities(db); err != nil {
+		log.Fatalf("Failed to generate top cities: %v", err)
+	}
+
+	log.Println("Airport cities population completed successfully.")
 }
