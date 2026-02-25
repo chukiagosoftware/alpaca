@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chukiagosoftware/alpaca/internal/hotelstorage"
 	"github.com/chukiagosoftware/alpaca/models"
 )
 
@@ -222,7 +223,7 @@ func (p *amadeusProvider) fetchHotelRatingsData(ctx context.Context, hotelID str
 }
 
 // fetchHotelsForCity fetches hotels from Amadeus for a given city code
-func fetchHotelsForCity(ctx context.Context, hotelStorage *hotelStorage, cityCode string) (int, error) {
+func fetchHotelsForCity(ctx context.Context, hotelStorage *hotelstorage.Storage, cityCode string) (int, error) {
 	apiClient := os.Getenv("AMD")
 	apiSecret := os.Getenv("AMS")
 
@@ -245,7 +246,7 @@ func fetchHotelsForCity(ctx context.Context, hotelStorage *hotelStorage, cityCod
 	// Process hotels
 	hotelsCreated := 0
 	for _, hotel := range hotels {
-		err := hotelStorage.create(ctx, &hotel)
+		err := hotelStorage.Create(ctx, &hotel)
 		if err != nil {
 			log.Printf("Error saving hotel %s: %v", hotel.Name, err)
 		} else {

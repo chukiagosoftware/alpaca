@@ -1,15 +1,25 @@
-package services
+package main
 
 import (
 	"context"
 	"database/sql"
 	"log"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/internal/hotelstorage"
 	"github.com/chukiagosoftware/alpaca/models"
+	"github.com/joho/godotenv"
 )
+
+// ReviewSource defines the interface for review sources
+type ReviewSource interface {
+	GetSourceName() string
+	CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error)
+}
 
 // ReviewCrawlerService handles crawling reviews from multiple sources
 type ReviewCrawlerService struct {
@@ -21,22 +31,16 @@ func NewReviewCrawlerService(db *database.DB) *ReviewCrawlerService {
 	return &ReviewCrawlerService{db: db}
 }
 
-// ReviewSource defines the interface for review sources
-type ReviewSource interface {
-	GetSourceName() string
-	CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error)
-}
-
 // CrawlAllSources crawls reviews from all available sources for a hotel
 func (s *ReviewCrawlerService) CrawlAllSources(ctx context.Context, hotel *models.Hotel) (int, error) {
 	sources := []ReviewSource{
-		NewTripadvisorCrawler(),
-		NewGoogleCrawler(),
-		NewExpediaCrawler(),
-		NewBookingCrawler(),
-		NewHotelWebsiteCrawler(),
-		NewBingCrawler(),
-		NewYelpCrawler(),
+		//NewTripadvisorCrawler(),
+		NewGoogleCrawler(), //
+		//NewExpediaCrawler(),
+		//NewBookingCrawler(),
+		//NewHotelWebsiteCrawler(),
+		//NewBingCrawler(),
+		//NewYelpCrawler(),
 	}
 
 	totalReviews := 0
@@ -206,124 +210,58 @@ func (s *ReviewCrawlerService) GetReviewTexts(ctx context.Context, hotelID strin
 	return texts, nil
 }
 
-// TripadvisorCrawler crawls reviews from Tripadvisor
-type TripadvisorCrawler struct{}
-
-func NewTripadvisorCrawler() *TripadvisorCrawler {
-	return &TripadvisorCrawler{}
-}
-
-func (c *TripadvisorCrawler) GetSourceName() string {
-	return models.SourceTripadvisor
-}
-
-func (c *TripadvisorCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	// TODO: Implement Tripadvisor web scraping or API integration
-	log.Printf("Tripadvisor crawler not yet implemented for hotel %s", hotel.Name)
-	return []*models.HotelReview{}, nil
-}
-
-// GoogleCrawler crawls reviews from Google
-type GoogleCrawler struct{}
-
-func NewGoogleCrawler() *GoogleCrawler {
-	return &GoogleCrawler{}
-}
-
-func (c *GoogleCrawler) GetSourceName() string {
-	return models.SourceGoogle
-}
-
-func (c *GoogleCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	// TODO: Implement Google Places API integration
-	log.Printf("Google crawler not yet implemented for hotel %s", hotel.Name)
-	return []*models.HotelReview{}, nil
-}
-
-// ExpediaCrawler crawls reviews from Expedia
-type ExpediaCrawler struct{}
-
-func NewExpediaCrawler() *ExpediaCrawler {
-	return &ExpediaCrawler{}
-}
-
-func (c *ExpediaCrawler) GetSourceName() string {
-	return models.SourceExpedia
-}
-
-func (c *ExpediaCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	// TODO: Implement Expedia API or web scraping
-	log.Printf("Expedia crawler not yet implemented for hotel %s", hotel.Name)
-	return []*models.HotelReview{}, nil
-}
-
-// BookingCrawler crawls reviews from Booking.com
-type BookingCrawler struct{}
-
-func NewBookingCrawler() *BookingCrawler {
-	return &BookingCrawler{}
-}
-
-func (c *BookingCrawler) GetSourceName() string {
-	return models.SourceBooking
-}
-
-func (c *BookingCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	// TODO: Implement Booking.com API or web scraping
-	log.Printf("Booking crawler not yet implemented for hotel %s", hotel.Name)
-	return []*models.HotelReview{}, nil
-}
-
-// HotelWebsiteCrawler crawls reviews from hotel's own website
-type HotelWebsiteCrawler struct{}
-
-func NewHotelWebsiteCrawler() *HotelWebsiteCrawler {
-	return &HotelWebsiteCrawler{}
-}
-
-func (c *HotelWebsiteCrawler) GetSourceName() string {
-	return models.SourceHotelWebsite
-}
-
-func (c *HotelWebsiteCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	if hotel.Website == "" {
-		return []*models.HotelReview{}, nil
+func main() {
+	_, currentFile, _, _ := runtime.Caller(0)
+	projectRoot := filepath.Dir(filepath.Dir(currentFile))
+	envPath := filepath.Join(projectRoot, ".env")
+	if err := godotenv.Load(envPath); err != nil {
+		log.Printf("Warning: Could not load .env file: %v", err)
 	}
 
-	log.Printf("Hotel website crawler not yet implemented for hotel %s", hotel.Name)
-	return []*models.HotelReview{}, nil
-}
+	db, err := database.NewDatabase()
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
 
-// BingCrawler crawls reviews from Bing
-type BingCrawler struct{}
+	crawler := NewReviewCrawlerService(db)
 
-func NewBingCrawler() *BingCrawler {
-	return &BingCrawler{}
-}
+	ctx := context.Background()
 
-func (c *BingCrawler) GetSourceName() string {
-	return models.SourceBing
-}
+	// Get all hotels
+	hotelDB := hotelstorage.NewStorage(db)
+	hotels, err := hotelDB.GetAllHotels(ctx)
+	if err != nil {
+		log.Fatalf("Failed to get hotels: %v", err)
+	}
 
-func (c *BingCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	// TODO: Implement Bing search API integration
-	log.Printf("Bing crawler not yet implemented for hotel %s", hotel.Name)
-	return []*models.HotelReview{}, nil
-}
+	// Filter to only Google-sourced hotels
+	var googleHotels []*models.Hotel
+	for _, hotel := range hotels {
+		if hotel.Source == models.HotelSourceGoogle {
+			googleHotels = append(googleHotels, hotel)
+		}
+	}
+	hotels = googleHotels
 
-// YelpCrawler crawls reviews from Yelp
-type YelpCrawler struct{}
+	log.Printf("Found %d Google-sourced hotels to crawl reviews for", len(hotels))
 
-func NewYelpCrawler() *YelpCrawler {
-	return &YelpCrawler{}
-}
+	totalReviewsCrawled := 0
+	for i, hotel := range hotels {
+		log.Printf("Crawling reviews for hotel %d/%d: %s (%s)", i+1, len(hotels), hotel.Name, hotel.HotelID)
 
-func (c *YelpCrawler) GetSourceName() string {
-	return models.SourceYelp
-}
+		reviewsCount, err := crawler.CrawlAllSources(ctx, hotel)
+		if err != nil {
+			log.Printf("Error crawling reviews for hotel %s: %v", hotel.HotelID, err)
+			continue
+		}
 
-func (c *YelpCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	// TODO: Implement Yelp Fusion API integration
-	log.Printf("Yelp crawler not yet implemented for hotel %s", hotel.Name)
-	return []*models.HotelReview{}, nil
+		totalReviewsCrawled += reviewsCount
+		log.Printf("Crawled %d reviews for hotel %s", reviewsCount, hotel.HotelID)
+
+		// Rate limiting between hotels
+		time.Sleep(2 * time.Second)
+	}
+
+	log.Printf("Review crawling completed. Total reviews crawled: %d", totalReviewsCrawled)
 }

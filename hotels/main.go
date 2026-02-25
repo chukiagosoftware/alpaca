@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/internal/hotelstorage"
 	"github.com/joho/godotenv"
 )
 
@@ -37,7 +38,7 @@ func main() {
 	defer db.Close()
 
 	// Initialize storages
-	hotelStorage := newHotelStorage(db)
+	hotelStorage := hotelstorage.NewStorage(db)
 	hotelFetcher := newHotelFetcher(hotelStorage)
 
 	ctx := context.Background()
