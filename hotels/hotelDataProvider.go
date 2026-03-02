@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chukiagosoftware/alpaca/internal/hotelstorage"
+	"github.com/chukiagosoftware/alpaca/internal/orm"
 	"github.com/chukiagosoftware/alpaca/models"
 )
 
@@ -19,19 +19,17 @@ type hotelDataProvider interface {
 
 // hotelFetcher coordinates fetching from multiple hotel sources
 type hotelFetcher struct {
-	hotelStorage *hotelstorage.Storage
-	providers    []hotelDataProvider
+	db        *orm.DB
+	providers []hotelDataProvider
 }
 
 // newHotelFetcher creates a new hotel fetcher
-func newHotelFetcher(hotelStorage *hotelstorage.Storage) *hotelFetcher {
+func newHotelFetcher(db *orm.DB) *hotelFetcher {
 	return &hotelFetcher{
-		hotelStorage: hotelStorage,
+		db: db,
 		providers: []hotelDataProvider{
 			newGooglePlacesProvider(),
-			newExpediaProvider(),
-			newBookingProvider(),
-			newTripAdvisorProvider(),
+			//newYelpProvider(),
 		},
 	}
 }
@@ -59,7 +57,7 @@ func (f *hotelFetcher) fetchFromAllSources(ctx context.Context, location string)
 		// Save hotels to database
 		savedCount := 0
 		for _, hotel := range hotels {
-			if err := f.hotelStorage.CreateOrUpdateHotel(ctx, hotel); err != nil {
+			if err := f.db.CreateOrUpdateHotel(ctx, hotel); err != nil {
 				log.Printf("Error saving hotel %s from %s: %v", hotel.Name, provider.getProviderName(), err)
 				continue
 			}

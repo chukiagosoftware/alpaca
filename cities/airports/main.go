@@ -10,8 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/chukiagosoftware/alpaca/database"
+	"github.com/chukiagosoftware/alpaca/internal/orm"
+	"github.com/chukiagosoftware/alpaca/models"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm/clause"
 )
 
 // Airport represents an airport from the OpenFlights dataset
@@ -186,7 +188,7 @@ func extractTopCities(airports []Airport) []cityCount {
 }
 
 // generateTopCities downloads airports data and generates Go code for top cities
-func generateTopCities(db *database.DB) error {
+func generateTopCities(db *orm.DB) error {
 	log.Println("Starting to generate top cities data...")
 
 	// Download airports data
@@ -199,29 +201,28 @@ func generateTopCities(db *database.DB) error {
 	topCities := extractTopCities(airports)
 	log.Printf("Extracted %d top cities", len(topCities))
 
-	// Generate Go code
-	// Insert into database
-
+	// Insert into database using GORM
 	for _, cc := range topCities {
-
-		_, err := db.Exec(`INSERT OR REPLACE INTO airport_cities (name, country, iata_code, airport_count) VALUES (?, ?, ?, ?)`, cc.city.Name, cc.city.Country, cc.city.IATACode, cc.count)
-
-		if err != nil {
-
-			return fmt.Errorf("failed to insert city %s: %w", cc.city.Name, err)
-
+		city := models.AirportCity{
+			Name:         cc.city.Name,
+			Country:      cc.city.Country,
+			IATACode:     cc.city.IATACode,
+			AirportCount: cc.count,
 		}
 
+		if err := db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "iata_code"}},
+			DoUpdates: clause.AssignmentColumns([]string{"name", "country", "airport_count"}),
+		}).Create(&city).Error; err != nil {
+			return fmt.Errorf("failed to insert city %s: %w", cc.city.Name, err)
+		}
 	}
 
 	log.Printf("Inserted %d cities into database", len(topCities))
 
 	log.Printf("Top 10 cities by airport count:")
-
 	for i, cc := range topCities[:min(10, len(topCities))] {
-
 		log.Printf("%d. %s, %s (%s) - %d airports", i+1, cc.city.Name, cc.city.Country, cc.city.IATACode, cc.count)
-
 	}
 
 	return nil
@@ -237,7 +238,7 @@ func main() {
 	}
 
 	// Initialize database
-	db, err := database.NewDatabase()
+	db, err := orm.NewDatabase()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

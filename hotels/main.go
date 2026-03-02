@@ -10,17 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chukiagosoftware/alpaca/database"
-	"github.com/chukiagosoftware/alpaca/internal/hotelstorage"
+	"github.com/chukiagosoftware/alpaca/internal/orm"
+	"github.com/chukiagosoftware/alpaca/models"
 	"github.com/joho/godotenv"
 )
 
 // City represents a city with IATA code
-type City struct {
-	Name     string
-	Country  string
-	IATACode string
-}
+type City = models.AirportCity
 
 func main() {
 	_, currentFile, _, _ := runtime.Caller(0)
@@ -31,15 +27,14 @@ func main() {
 	}
 
 	// Initialize database
-	db, err := database.NewDatabase()
+	db, err := orm.NewDatabase()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
 	// Initialize storages
-	hotelStorage := hotelstorage.NewStorage(db)
-	hotelFetcher := newHotelFetcher(hotelStorage)
+	hotelFetcher := newHotelFetcher(db)
 
 	ctx := context.Background()
 
@@ -56,12 +51,19 @@ func main() {
 		log.Printf("Processing city: %s (%s)", city.Name, city.IATACode)
 
 		// Fetch from Amadeus
-		amadeusHotels, err := fetchHotelsForCity(ctx, hotelStorage, city.IATACode)
+		hotelIDs, err := fetchHotelsForCity(ctx, db, city.IATACode)
+		log.Println("We are now getting custom list")
+
 		if err != nil {
 			log.Printf("Error fetching from Amadeus for %s: %v", city.IATACode, err)
 		} else {
-			totalAmadeusHotels += amadeusHotels
-			log.Printf("Fetched %d hotels from Amadeus for %s", amadeusHotels, city.IATACode)
+			totalAmadeusHotels += len(hotelIDs)
+			log.Printf("Fetched %d hotels from Amadeus for %s", len(hotelIDs), city.IATACode)
+			// Fetch detailed data for these hotels
+			err = fetchDetailedDataForHotels(ctx, db, hotelIDs)
+			if err != nil {
+				log.Printf("Error fetching detailed data for %s: %v", city.IATACode, err)
+			}
 		}
 
 		// Fetch from multi-source providers
@@ -81,10 +83,11 @@ func main() {
 	}
 
 	log.Printf("Hotel fetching completed. Amadeus: %d, Multi-source: %d, Total: %d", totalAmadeusHotels, totalMultiSource, totalAmadeusHotels+totalMultiSource)
+
 }
 
 // getTargetCities retrieves cities from .env
-func getTargetCities(db *database.DB) ([]City, error) {
+func getTargetCities(db *orm.DB) ([]City, error) {
 	citiesStr := os.Getenv("HOTEL_CITIES")
 	if citiesStr == "" {
 		citiesStr = "LON,AUS" // Default fallback
@@ -94,29 +97,7 @@ func getTargetCities(db *database.DB) ([]City, error) {
 		cityList[i] = strings.TrimSpace(c)
 	}
 
-	// Build dynamic IN clause with placeholders
-	placeholders := strings.Repeat("?,", len(cityList))
-	placeholders = placeholders[:len(placeholders)-1] // Remove trailing comma
-	query := "SELECT name, country, iata_code FROM airport_cities WHERE iata_code IN (" + placeholders + ")"
-
-	args := make([]interface{}, len(cityList))
-	for i, c := range cityList {
-		args[i] = c
-	}
-
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var cities []City
-	for rows.Next() {
-		var city City
-		if err := rows.Scan(&city.Name, &city.Country, &city.IATACode); err != nil {
-			return nil, err
-		}
-		cities = append(cities, city)
-	}
-	return cities, rows.Err()
+	err := db.Where("iata_code IN ?", cityList).Find(&cities).Error
+	return cities, err
 }

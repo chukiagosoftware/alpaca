@@ -138,7 +138,7 @@ func (p *googlePlacesProvider) fetchHotels(ctx context.Context, location string)
 						StateCode:     state,
 						Latitude:      &lat,
 						Longitude:     &lng,
-						GoogleRating:  &rating,
+						GoogleRating:  rating,
 						LastUpdate:    time.Now().Format(time.RFC3339),
 					}
 					hotelMap[hotelID] = hotel

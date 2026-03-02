@@ -2,17 +2,16 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
-	"github.com/chukiagosoftware/alpaca/database"
-	"github.com/chukiagosoftware/alpaca/internal/hotelstorage"
 	"github.com/chukiagosoftware/alpaca/models"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ReviewSource defines the interface for review sources
@@ -23,11 +22,11 @@ type ReviewSource interface {
 
 // ReviewCrawlerService handles crawling reviews from multiple sources
 type ReviewCrawlerService struct {
-	db *database.DB
+	db *gorm.DB
 }
 
 // NewReviewCrawlerService creates a new review crawler service
-func NewReviewCrawlerService(db *database.DB) *ReviewCrawlerService {
+func NewReviewCrawlerService(db *gorm.DB) *ReviewCrawlerService {
 	return &ReviewCrawlerService{db: db}
 }
 
@@ -68,129 +67,20 @@ func (s *ReviewCrawlerService) CrawlAllSources(ctx context.Context, hotel *model
 
 // SaveReview saves a review to the database
 func (s *ReviewCrawlerService) SaveReview(ctx context.Context, review *models.HotelReview) error {
-	query := `
-		INSERT INTO hotel_reviews (
-			hotel_id, source, source_review_id, reviewer_name, reviewer_location,
-			rating, review_text, review_date, verified, helpful_count,
-			room_type, travel_type, stay_date
-		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(hotel_id, source, source_review_id) DO UPDATE SET
-			reviewer_name = excluded.reviewer_name,
-			reviewer_location = excluded.reviewer_location,
-			rating = excluded.rating,
-			review_text = excluded.review_text,
-			review_date = excluded.review_date,
-			verified = excluded.verified,
-			helpful_count = excluded.helpful_count,
-			room_type = excluded.room_type,
-			travel_type = excluded.travel_type,
-			stay_date = excluded.stay_date,
-			updated_at = CURRENT_TIMESTAMP
-	`
-
-	var reviewDate, stayDate interface{}
-	if review.ReviewDate != nil {
-		reviewDate = review.ReviewDate.Format(time.RFC3339)
-	}
-	if review.StayDate != nil {
-		stayDate = review.StayDate.Format(time.RFC3339)
-	}
-
-	verified := 0
-	if review.Verified {
-		verified = 1
-	}
-
-	var rating interface{}
-	if review.Rating != nil {
-		rating = *review.Rating
-	}
-
-	_, err := s.db.ExecContext(ctx, query,
-		review.HotelID,
-		review.Source,
-		review.SourceReviewID,
-		review.ReviewerName,
-		review.ReviewerLocation,
-		rating,
-		review.ReviewText,
-		reviewDate,
-		verified,
-		review.HelpfulCount,
-		review.RoomType,
-		review.TravelType,
-		stayDate,
-	)
-	return err
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "hotel_id"}, {Name: "source"}, {Name: "source_review_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"reviewer_name", "reviewer_location", "rating", "review_text",
+			"review_date", "verified", "helpful_count", "room_type", "travel_type", "stay_date",
+		}),
+	}).Create(review).Error
 }
 
 // GetReviewsForHotel retrieves all reviews for a hotel
 func (s *ReviewCrawlerService) GetReviewsForHotel(ctx context.Context, hotelID string) ([]*models.HotelReview, error) {
-	query := `
-		SELECT id, hotel_id, source, source_review_id, reviewer_name, reviewer_location,
-		       rating, review_text, review_date, verified, helpful_count,
-		       room_type, travel_type, stay_date, created_at, updated_at
-		FROM hotel_reviews
-		WHERE hotel_id = ?
-		ORDER BY review_date DESC, created_at DESC
-	`
-
-	rows, err := s.db.QueryContext(ctx, query, hotelID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var reviews []*models.HotelReview
-	for rows.Next() {
-		var review models.HotelReview
-		var reviewDate, stayDate sql.NullString
-		var rating sql.NullFloat64
-		var verified int
-
-		err := rows.Scan(
-			&review.ID,
-			&review.HotelID,
-			&review.Source,
-			&review.SourceReviewID,
-			&review.ReviewerName,
-			&review.ReviewerLocation,
-			&rating,
-			&review.ReviewText,
-			&reviewDate,
-			&verified,
-			&review.HelpfulCount,
-			&review.RoomType,
-			&review.TravelType,
-			&stayDate,
-			&review.CreatedAt,
-			&review.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if rating.Valid {
-			val := rating.Float64
-			review.Rating = &val
-		}
-		if reviewDate.Valid {
-			if t, err := time.Parse(time.RFC3339, reviewDate.String); err == nil {
-				review.ReviewDate = &t
-			}
-		}
-		if stayDate.Valid {
-			if t, err := time.Parse(time.RFC3339, stayDate.String); err == nil {
-				review.StayDate = &t
-			}
-		}
-		review.Verified = verified == 1
-
-		reviews = append(reviews, &review)
-	}
-
-	return reviews, rows.Err()
+	err := s.db.WithContext(ctx).Where("hotel_id = ?", hotelID).Order("review_date DESC, created_at DESC").Find(&reviews).Error
+	return reviews, err
 }
 
 // GetReviewTexts returns just the review texts for LLM processing
@@ -224,12 +114,12 @@ func main() {
 	}
 	defer db.Close()
 
-	crawler := NewReviewCrawlerService(db)
+	crawler := NewReviewCrawlerService(db.DB)
 
 	ctx := context.Background()
 
 	// Get all hotels
-	hotelDB := hotelstorage.NewStorage(db)
+	hotelDB := database.NewStorage(db.DB)
 	hotels, err := hotelDB.GetAllHotels(ctx)
 	if err != nil {
 		log.Fatalf("Failed to get hotels: %v", err)

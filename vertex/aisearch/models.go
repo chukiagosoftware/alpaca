@@ -1,46 +1,8 @@
 package aisearch
 
-import (
-	"time"
-)
+import "github.com/chukiagosoftware/alpaca/internal/orm"
 
-// City represents a city entry
-type City struct {
-	ID        int64     `json:"id" bigquery:"id"`
-	Name      string    `json:"name" bigquery:"name"`
-	Country   string    `json:"country" bigquery:"country"`
-	IATACode  string    `json:"iata_code" bigquery:"iata_code"`
-	Latitude  float64   `json:"latitude" bigquery:"latitude"`
-	Longitude float64   `json:"longitude" bigquery:"longitude"`
-	CreatedAt time.Time `json:"created_at" bigquery:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" bigquery:"updated_at"`
-}
-
-// Hotel represents a hotel entry
-type Hotel struct {
-	ID           int64     `json:"id" bigquery:"id"`
-	Name         string    `json:"name" bigquery:"name"`
-	Address      string    `json:"address" bigquery:"address"`
-	City         string    `json:"city" bigquery:"city"`
-	IATACode     string    `json:"iata_code" bigquery:"iata_code"`
-	Latitude     float64   `json:"latitude" bigquery:"latitude"`
-	Longitude    float64   `json:"longitude" bigquery:"longitude"`
-	GoogleRating float64   `json:"google_rating" bigquery:"google_rating"`
-	CreatedAt    time.Time `json:"created_at" bigquery:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" bigquery:"updated_at"`
-}
-
-// Review represents a review entry
-type Review struct {
-	ID        int64     `json:"id" bigquery:"id"`
-	HotelID   int64     `json:"hotel_id" bigquery:"hotel_id"`
-	Rating    int       `json:"rating" bigquery:"rating"`
-	Quality   int       `json:"quality" bigquery:"quality"`
-	Quiet     int       `json:"quiet" bigquery:"quiet"`
-	Text      string    `json:"text" bigquery:"text"`
-	CreatedAt time.Time `json:"created_at" bigquery:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" bigquery:"updated_at"`
-}
+// for Hotel, Review structs ^^
 
 // StarHotel represents the enriched star schema row
 type StarHotel struct {

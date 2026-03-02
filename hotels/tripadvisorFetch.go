@@ -111,7 +111,7 @@ func (p *tripAdvisorProvider) fetchHotels(ctx context.Context, location string) 
 			Phone:             result.Phone,
 			Website:           result.Website,
 			Email:             result.Email,
-			TripadvisorRating: &rating,
+			TripadvisorRating: rating,
 			LastUpdate:        time.Now().Format(time.RFC3339),
 		}
 		hotels = append(hotels, hotel)

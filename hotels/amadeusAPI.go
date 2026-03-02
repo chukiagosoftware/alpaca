@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chukiagosoftware/alpaca/internal/hotelstorage"
+	"github.com/chukiagosoftware/alpaca/internal/orm"
 	"github.com/chukiagosoftware/alpaca/models"
 )
 
@@ -207,7 +207,7 @@ func (p *amadeusProvider) fetchHotelRatingsData(ctx context.Context, hotelID str
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("error status %d for hotel %s ratings", resp.StatusCode, hotelID)
+		return nil, fmt.Errorf("error status %d for hotel %s ratings.", resp.StatusCode, hotelID)
 	}
 
 	var ratingsResp models.HotelRatingsResponse
@@ -223,36 +223,82 @@ func (p *amadeusProvider) fetchHotelRatingsData(ctx context.Context, hotelID str
 }
 
 // fetchHotelsForCity fetches hotels from Amadeus for a given city code
-func fetchHotelsForCity(ctx context.Context, hotelStorage *hotelstorage.Storage, cityCode string) (int, error) {
+func fetchHotelsForCity(ctx context.Context, db *orm.DB, cityCode string) ([]string, error) {
 	apiClient := os.Getenv("AMD")
 	apiSecret := os.Getenv("AMS")
 
 	if apiClient == "" || apiSecret == "" {
-		return 0, fmt.Errorf("Amadeus credentials not provided")
+		return nil, fmt.Errorf("Amadeus credentials not provided")
 	}
 
 	provider := newAmadeusProvider(apiClient, apiSecret)
 
 	token, err := provider.getOAuthToken(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("error getting OAuth token: %w", err)
+		return nil, fmt.Errorf("error getting OAuth token: %w", err)
 	}
 
 	hotels, _, err := provider.fetchHotelsList(ctx, cityCode, token)
 	if err != nil {
-		return 0, fmt.Errorf("error fetching hotels list: %w", err)
+		return nil, fmt.Errorf("error fetching hotels list: %w", err)
 	}
 
 	// Process hotels
-	hotelsCreated := 0
+	var createdHotelIDs []string
 	for _, hotel := range hotels {
-		err := hotelStorage.Create(ctx, &hotel)
+		err := db.Create(ctx, &hotel)
 		if err != nil {
 			log.Printf("Error saving hotel %s: %v", hotel.Name, err)
 		} else {
-			hotelsCreated++
+			createdHotelIDs = append(createdHotelIDs, hotel.HotelID)
 		}
 	}
 
-	return hotelsCreated, nil
+	return createdHotelIDs, nil
+}
+
+// fetchDetailedDataForHotels fetches search and ratings data for all hotels
+func fetchDetailedDataForHotels(ctx context.Context, db *orm.DB, hotelIDs []string) error {
+	apiClient := os.Getenv("AMD")
+	apiSecret := os.Getenv("AMS")
+
+	if apiClient == "" || apiSecret == "" {
+		return fmt.Errorf("Amadeus credentials not provided")
+	}
+
+	provider := newAmadeusProvider(apiClient, apiSecret)
+
+	token, err := provider.getOAuthToken(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting OAuth token: %w", err)
+	}
+
+	for _, hotelID := range hotelIDs {
+		// Fetch search data
+		searchData, err := provider.fetchHotelSearchData(ctx, hotelID, token)
+		if err != nil {
+			log.Printf("Error fetching search data for %s: %v", hotelID, err)
+
+		} else {
+			err = db.UpdateAmadeusSearchData(ctx, hotelID, searchData)
+			if err != nil {
+				log.Printf("Error saving search data for %s: %v", hotelID, err)
+			}
+		}
+		// Fetch ratings data even if search data 404
+		ratingsData, err := provider.fetchHotelRatingsData(ctx, hotelID, token)
+		if err != nil {
+			log.Printf("Error fetching ratings for %s: %v", hotelID, err)
+			continue
+		}
+		err = db.UpdateAmadeusRatingsData(ctx, hotelID, ratingsData)
+		if err != nil {
+			log.Printf("Error saving ratings for %s: %v", hotelID, err)
+		}
+
+		// Rate limiting
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	return nil
 }

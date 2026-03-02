@@ -2,19 +2,27 @@
 
 A comprehensive Go microservice suite that fetches, consolidates, and analyzes hotel data from multiple sources. 
 
-Features multi-source data aggregation, RAG and LLM-powered recommendation analysis.
+Features multi-source data aggregation, RAG, and LLM-powered recommendation analysis.
+
+Architected, coded, designed, and deployed by ChukiagoSoftware. 
+
+Powered by Grok, ChatGPT, and Claude for code generation, code analysis, and research assistance.
+
+Kubernetes, Cloud Native, with built-in metrics via OpenTelemetry.
 
 ## Architecture
 
-Alpaca is a Go microservice and suite of services that:
-- Fetches hotel data from multiple sources (Amadeus, Expedia, Tripadvisor, Google, Booking.com)
+Alpaca is a Go microservice suite. It does the following:
+- Fetches hotel data from multiple sources
 - Consolidates hotel data into a unified schema
-- Crawls reviews from multiple sources (Tripadvisor, Google, Expedia, Booking, hotel websites, etc.)
-- Uses RAG with Google BigQuery and LLM (GPT-4, Claude, Grok) to analyze reviews for Quality and Quiet
-- Generates intelligent recommendations based on review analysis
-- Stores data in SQLite (default) with raw SQL
+- Fetches reviews from available API sources
+- Implements Retrieval Augmented Generation - RAG -  with Google BigQuery and AI Search
+- Implements LLM completion after a dimensional similarity search (GPT-4, Claude, Grok) to analyze reviews
+- Generates intelligent recommendations based configurable LLM review analysis
+- Stores data in SQLite (default) leveraging GORM for maintainability
 - Uses a generalized provider interface for easy API integration
 - Processes data in concurrent batches with rate limiting
+- 
 
 ## Project Structure
 
