@@ -87,7 +87,7 @@ func main() {
 }
 
 // getTargetCities retrieves cities from .env
-func getTargetCities(db *orm.DB) ([]City, error) {
+func getTargetCities(db *orm.DB) ([]models.AirportCity, error) {
 	citiesStr := os.Getenv("HOTEL_CITIES")
 	if citiesStr == "" {
 		citiesStr = "LON,AUS" // Default fallback
@@ -97,7 +97,7 @@ func getTargetCities(db *orm.DB) ([]City, error) {
 		cityList[i] = strings.TrimSpace(c)
 	}
 
-	var cities []City
-	err := db.Where("iata_code IN ?", cityList).Find(&cities).Error
-	return cities, err
+	var airportCities []models.AirportCity
+	err := db.Where("iata_code IN ?", cityList).Find(&airportCities).Error
+	return airportCities, err
 }

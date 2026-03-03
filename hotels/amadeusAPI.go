@@ -278,6 +278,7 @@ func fetchDetailedDataForHotels(ctx context.Context, db *orm.DB, hotelIDs []stri
 		searchData, err := provider.fetchHotelSearchData(ctx, hotelID, token)
 		if err != nil {
 			log.Printf("Error fetching search data for %s: %v", hotelID, err)
+			break
 
 		} else {
 			err = db.UpdateAmadeusSearchData(ctx, hotelID, searchData)

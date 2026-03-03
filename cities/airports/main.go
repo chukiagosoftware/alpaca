@@ -36,9 +36,9 @@ type Airport struct {
 
 // City represents a city with IATA code for the constants
 type City struct {
-	Name     string
-	Country  string
-	IATACode string
+	Name      string
+	Country   string
+	IATACodes []string
 }
 
 type cityCount struct {
@@ -138,6 +138,10 @@ func extractTopCities(airports []Airport) []cityCount {
 			continue
 		}
 
+		if airport.City == "" {
+			continue
+		}
+
 		// Skip non-passenger airports
 		if airport.Type != "airport" {
 			continue
@@ -150,11 +154,26 @@ func extractTopCities(airports []Airport) []cityCount {
 		cityMap[key]++
 
 		// Store city info (use the first occurrence)
+		// Store city info (use the first occurrence)
 		if _, exists := cityInfo[key]; !exists {
 			cityInfo[key] = City{
-				Name:     airport.City,
-				Country:  airport.Country,
-				IATACode: airport.IATA,
+				Name:      airport.City,
+				Country:   airport.Country,
+				IATACodes: []string{airport.IATA},
+			}
+		} else {
+			// Check if IATA already exists
+			found := false
+			city := cityInfo[key]
+			for _, existing := range city.IATACodes {
+				if existing == airport.IATA {
+					found = true
+					break
+				}
+			}
+			if !found {
+				city.IATACodes = append(cityInfo[key].IATACodes, airport.IATA)
+				cityInfo[key] = city
 			}
 		}
 	}
@@ -194,27 +213,35 @@ func generateTopCities(db *orm.DB) error {
 	// Download airports data
 	airports, err := downloadAirportsData()
 	if err != nil {
-		return fmt.Errorf("failed to download airports data: %w", err)
+		return fmt.Errorf("failed to download airports data: %w\n", err)
 	}
 
+	log.Printf("Downloaded %d airports", len(airports))
 	// Extract top cities
 	topCities := extractTopCities(airports)
+
 	log.Printf("Extracted %d top cities", len(topCities))
 
-	// Insert into database using GORM
-	for _, cc := range topCities {
-		city := models.AirportCity{
-			Name:         cc.city.Name,
-			Country:      cc.city.Country,
-			IATACode:     cc.city.IATACode,
-			AirportCount: cc.count,
-		}
+	log.Println(topCities[0])
 
-		if err := db.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "iata_code"}},
-			DoUpdates: clause.AssignmentColumns([]string{"name", "country", "airport_count"}),
-		}).Create(&city).Error; err != nil {
-			return fmt.Errorf("failed to insert city %s: %w", cc.city.Name, err)
+	// Insert into database using GORM
+	insertCount := 0
+	for _, cc := range topCities {
+		for _, iata := range cc.city.IATACodes {
+			city := models.AirportCity{
+				IATACode:     iata,
+				Name:         cc.city.Name,
+				Country:      cc.city.Country,
+				AirportCount: cc.count,
+			}
+
+			if err := db.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "iata_code"}},
+				DoUpdates: clause.AssignmentColumns([]string{"name", "country", "airport_count"}),
+			}).Create(&city).Error; err != nil {
+				return fmt.Errorf("failed to insert city %s: %w", cc.city.Name, err)
+			}
+			insertCount++
 		}
 	}
 
@@ -222,7 +249,7 @@ func generateTopCities(db *orm.DB) error {
 
 	log.Printf("Top 10 cities by airport count:")
 	for i, cc := range topCities[:min(10, len(topCities))] {
-		log.Printf("%d. %s, %s (%s) - %d airports", i+1, cc.city.Name, cc.city.Country, cc.city.IATACode, cc.count)
+		log.Printf("%d. %s, %s (%s) - %d airports", i+1, cc.city.Name, cc.city.Country, cc.city.IATACodes, cc.count)
 	}
 
 	return nil
@@ -230,7 +257,7 @@ func generateTopCities(db *orm.DB) error {
 
 func main() {
 	_, currentFile, _, _ := runtime.Caller(0)
-	// Adjust path as needed; assuming cmd/airportcities/main.go
+	// Adjust paths as needed; assuming cmd/airportcities/main.go
 	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(currentFile)))
 	envPath := filepath.Join(projectRoot, ".env")
 	if err := godotenv.Load(envPath); err != nil {

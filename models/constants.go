@@ -14,6 +14,6 @@ const (
 type AirportCity struct {
 	Name         string `gorm:"primaryKey"`
 	Country      string `gorm:"primaryKey"`
-	IATACode     string `gorm:"column:iata_code;unique;not null"`
+	IATACode     string `gorm:"primaryKey;column:iata_code;unique;not null"`
 	AirportCount int    `gorm:"column:airport_count;default:0"`
 }

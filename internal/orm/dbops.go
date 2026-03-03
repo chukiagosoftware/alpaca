@@ -140,13 +140,13 @@ func (db *DB) UpdateAmadeusRatingsData(ctx context.Context, hotelID string, data
 }
 
 // SaveReview saves a review to the database
+
+// SaveReview saves a review to the database
+
 func (db *DB) SaveReview(ctx context.Context, review *models.HotelReview) error {
 	return db.DB.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "hotel_id"}, {Name: "source"}, {Name: "source_review_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"reviewer_name", "reviewer_location", "rating", "review_text",
-			"review_date", "verified", "helpful_count", "room_type", "travel_type", "stay_date",
-		}),
+		Columns:   []clause.Column{{Name: "source"}, {Name: "source_review_id"}},
+		DoNothing: true,
 	}).Create(review).Error
 }
 
