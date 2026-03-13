@@ -1,0 +1,13 @@
+# Sample configuration for vertex/indexsearch/main.go
+# Values can be overridden by environment variables (e.g., PROJECT_ID=your-project-id)
+# Run modes: "1" (generate embeddings), "2" (BQ cosine search), "3a" (upload to Vertex), "3b" (Vertex index search), "3c" (Vertex endpoint search)
+
+project_id: "golang1212025"        # GCP project ID
+location: "us-central1"            # GCP region (e.g., us-central1)
+dataset_id: "alpaca"          # BigQuery dataset ID
+index_id: "your-vector-index-id"   # Vertex AI index ID (for modes 3a, 3b, 3c)
+endpoint_id: "your-endpoint-id"    # Vertex AI endpoint ID (for mode 3c only)
+mode: "3b"                         # Choose: "1", "2", "3a", "3b", "3c"
+force: false                       # For mode 1: true to regenerate all embeddings, false to skip if exists
+query: [0.1, 0.2, 0.3]            # Embedding vector for search (modes 2, 3b, 3c); must be []float64
+limit: 10                          # Number of results to return

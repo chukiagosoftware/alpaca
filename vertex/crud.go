@@ -3,7 +3,7 @@ package vertex
 import (
 	"context"
 	"fmt"
-	"math"
+	"log"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
@@ -218,10 +218,14 @@ func (s *BQ) AddVectorColumnToHotelReviews(ctx context.Context) error {
 	return nil
 }
 
-// GenerateEmbeddingsForHotelReviews populates embeddings using Vertex AI UDF
-func (s *BQ) GenerateEmbeddingsForHotelReviews(ctx context.Context) error {
-	query := fmt.Sprintf("UPDATE `%s.%s.hotel_reviews` r SET embedding = ML.GENERATE_EMBEDDING(MODEL `cloud-ai-ml.textembedding-gecko`, r.review_text) WHERE embedding IS NULL",
-		s.ProjectID, s.DatasetID)
+// GenerateEmbeddingsForHotelReviews generates embeddings for hotel_reviews, with a flag to force rerun
+func (s *BQ) GenerateEmbeddingsForHotelReviews(ctx context.Context, force bool) error {
+	var condition string
+	if !force {
+		condition = " WHERE embedding IS NULL"
+	}
+	query := fmt.Sprintf("UPDATE `%s.%s.hotel_reviews` r SET embedding = ML.GENERATE_EMBEDDING(MODEL `cloud-ai-ml.textembedding-gecko`, r.review_text)%s",
+		s.ProjectID, s.DatasetID, condition)
 	q := s.BQClient.Query(query)
 	job, err := q.Run(ctx)
 	if err != nil {
@@ -234,58 +238,34 @@ func (s *BQ) GenerateEmbeddingsForHotelReviews(ctx context.Context) error {
 	if status.Err() != nil {
 		return fmt.Errorf("job error: %w", status.Err())
 	}
+	log.Println("Embeddings generated/updated for hotel_reviews")
 	return nil
 }
 
-// SearchSimilarReviews performs cosine similarity search on hotel_reviews
-func (s *BQ) SearchSimilarReviews(ctx context.Context, queryEmbedding []float64, limit int) ([]models.HotelReview, error) {
-	// Convert embedding to BigQuery array format
-	embStr := "ARRAY["
-	for i, v := range queryEmbedding {
-		if i > 0 {
-			embStr += ", "
-		}
-		embStr += fmt.Sprintf("%f", v)
-	}
-	embStr += "]"
-
-	query := fmt.Sprintf("SELECT id, hotel_id, source, source_review_id, reviewer_name, reviewer_location, rating, review_text, review_date, verified, helpful_count, room_type, travel_type, stay_date, created_at, updated_at FROM `%s.%s.hotel_reviews` WHERE embedding IS NOT NULL ORDER BY VECTOR_DISTANCE(embedding, %s, COSINE) LIMIT %d",
-		s.ProjectID, s.DatasetID, embStr, limit)
-
+// SearchSimilarReviewsBQ searches for similar reviews using BigQuery vector search
+func (s *BQ) SearchSimilarReviewsBQ(ctx context.Context, queryEmbedding []float64, limit int) ([]models.HotelReview, error) {
+	query := fmt.Sprintf("SELECT * FROM `%s.%s.hotel_reviews` WHERE embedding IS NOT NULL ORDER BY COSINE_DISTANCE(embedding, @query_embedding) LIMIT @limit",
+		s.ProjectID, s.DatasetID)
 	q := s.BQClient.Query(query)
+	q.Parameters = []bigquery.QueryParameter{
+		{Name: "query_embedding", Value: queryEmbedding},
+		{Name: "limit", Value: limit},
+	}
 	it, err := q.Read(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to run query: %w", err)
 	}
-
 	var reviews []models.HotelReview
 	for {
-		var r models.HotelReview
-		err := it.Next(&r)
+		var review models.HotelReview
+		err := it.Next(&review)
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
-		reviews = append(reviews, r)
+		reviews = append(reviews, review)
 	}
 	return reviews, nil
-}
-
-// cosineSimilarity utility function
-func cosineSimilarity(a, b []float32) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-	var dot, norma, normb float64
-	for i := range a {
-		dot += float64(a[i] * b[i])
-		norma += float64(a[i] * a[i])
-		normb += float64(b[i] * b[i])
-	}
-	if norma == 0 || normb == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(norma) * math.Sqrt(normb))
 }
