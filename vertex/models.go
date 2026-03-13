@@ -1,8 +1,4 @@
-package aisearch
-
-import "github.com/chukiagosoftware/alpaca/internal/orm"
-
-// for Hotel, Review structs ^^
+package vertex
 
 // StarHotel represents the enriched star schema row
 type StarHotel struct {
@@ -13,9 +9,6 @@ type StarHotel struct {
 	HotelName          string    `json:"hotel_name" bigquery:"hotel_name"`
 	Address            string    `json:"address" bigquery:"address"`
 	GoogleRating       float64   `json:"google_rating" bigquery:"google_rating"`
-	OverallRating      float64   `json:"overall_rating" bigquery:"overall_rating"`
-	QualityRating      float64   `json:"quality_rating" bigquery:"quality_rating"`
-	QuietRating        float64   `json:"quiet_rating" bigquery:"quiet_rating"`
 	AdminOverride      string    `json:"admin_override" bigquery:"admin_override"`
 	Embedding          []float32 `json:"embedding" bigquery:"embedding"` // for vector search
 }

@@ -97,7 +97,6 @@ func (db *DB) Create(ctx context.Context, apiHotel *models.HotelAPIItem) error {
 		PostalCode:    addressData.PostalCode,
 		StateCode:     addressData.StateCode,
 		Type:          apiHotel.Type,
-		ChainCode:     apiHotel.ChainCode,
 		DupeID:        int64(apiHotel.DupeID),
 		IATACode:      apiHotel.IATACode,
 		LastUpdate:    apiHotel.LastUpdate,

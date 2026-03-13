@@ -15,16 +15,16 @@ import (
 )
 
 var tripadvisorLocationIDs = map[string]string{
-	"London,England":   "g186338-London_England",
-	"Austin,USA":       "g30196-Austin_Texas",
+	//	"London,England":   "g186338-London_England",
+	//	"Austin,USA":       "g30196-Austin_Texas",
 	"Sao Paulo,Brazil": "g303631-Sao_Paulo_State_of_Sao_Paulo",
 	"Helsinki,Finland": "g189934-Helsinki_Uusimaa",
-	"Warsaw,Poland":    "g274856-Warsaw_Mazovia_Province_Central_Poland",
-	"Miami,USA":        "g34438-Miami_Florida",
-	"Madrid,Spain":     "g187514-Madrid",
-	"Bangkok,Thailand": "g293916-Bangkok",
-	"Denver,USA":       "g33388-Denver_Colorado",
-	"Sydney,Australia": "g255060-Sydney_New_South_Wales",
+	//	"Warsaw,Poland":    "g274856-Warsaw_Mazovia_Province_Central_Poland",
+	"Miami,USA":    "g34438-Miami_Florida",
+	"Madrid,Spain": "g187514-Madrid",
+	//	"Bangkok,Thailand": "g293916-Bangkok",
+	"Denver,USA": "g33388-Denver_Colorado",
+	//	"Sydney,Australia": "g255060-Sydney_New_South_Wales",
 }
 
 // ScrapedHotel pairs a hotel model with its URL for temporary use

@@ -16,38 +16,15 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Airport represents an airport from the OpenFlights dataset
-type Airport struct {
-	ID       string
-	Name     string
-	City     string
-	Country  string
-	IATA     string
-	ICAO     string
-	Lat      string
-	Lon      string
-	Altitude string
-	Timezone string
-	DST      string
-	TzDB     string
-	Type     string
-	Source   string
-}
-
-// City represents a city with IATA code for the constants
-type City struct {
-	Name      string
-	Country   string
-	IATACodes []string
-}
-
 type cityCount struct {
-	city  City
-	count int
+	name    string
+	country string
+	iatas   []string
+	count   int
 }
 
 // downloadAirportsData downloads the OpenFlights airports dataset
-func downloadAirportsData() ([]Airport, error) {
+func downloadAirportsData() ([]models.Airport, error) {
 	url := "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat"
 
 	log.Printf("Downloading airports data from: %s", url)
@@ -62,7 +39,7 @@ func downloadAirportsData() ([]Airport, error) {
 		return nil, fmt.Errorf("failed to download airports data: status %d", resp.StatusCode)
 	}
 
-	var airports []Airport
+	var airports []models.Airport
 	scanner := bufio.NewScanner(resp.Body)
 
 	for scanner.Scan() {
@@ -72,7 +49,7 @@ func downloadAirportsData() ([]Airport, error) {
 		fields := parseOpenFlightsLine(line)
 
 		if len(fields) >= 14 {
-			airport := Airport{
+			airport := models.Airport{
 				ID:       fields[0],
 				Name:     fields[1],
 				City:     fields[2],
@@ -127,10 +104,10 @@ func parseOpenFlightsLine(line string) []string {
 }
 
 // extractTopCities processes airports data and returns the top cities
-func extractTopCities(airports []Airport) []cityCount {
+func extractTopCities(airports []models.Airport) []cityCount {
 	// Create a map to deduplicate cities and count airports per city
 	cityMap := make(map[string]int)
-	cityInfo := make(map[string]City)
+	iataMap := make(map[string][]string)
 
 	for _, airport := range airports {
 		// Skip airports without IATA codes or with invalid codes
@@ -153,37 +130,19 @@ func extractTopCities(airports []Airport) []cityCount {
 		// Count airports per city
 		cityMap[key]++
 
-		// Store city info (use the first occurrence)
-		// Store city info (use the first occurrence)
-		if _, exists := cityInfo[key]; !exists {
-			cityInfo[key] = City{
-				Name:      airport.City,
-				Country:   airport.Country,
-				IATACodes: []string{airport.IATA},
-			}
-		} else {
-			// Check if IATA already exists
-			found := false
-			city := cityInfo[key]
-			for _, existing := range city.IATACodes {
-				if existing == airport.IATA {
-					found = true
-					break
-				}
-			}
-			if !found {
-				city.IATACodes = append(cityInfo[key].IATACodes, airport.IATA)
-				cityInfo[key] = city
-			}
+		// Collect IATAs
+		if !contains(iataMap[key], airport.IATA) {
+			iataMap[key] = append(iataMap[key], airport.IATA)
 		}
 	}
 
 	// Convert to slice and sort by airport count (descending)
-
 	var cityCounts []cityCount
 	for key, count := range cityMap {
-		city := cityInfo[key]
-		cityCounts = append(cityCounts, cityCount{city: city, count: count})
+		iatas := iataMap[key]
+		parts := strings.Split(key, ",")
+		name, country := parts[0], parts[1]
+		cityCounts = append(cityCounts, cityCount{name: name, country: country, iatas: iatas, count: count})
 	}
 
 	// Sort by airport count (descending), then by city name
@@ -191,19 +150,27 @@ func extractTopCities(airports []Airport) []cityCount {
 		if cityCounts[i].count != cityCounts[j].count {
 			return cityCounts[i].count > cityCounts[j].count
 		}
-		return cityCounts[i].city.Name < cityCounts[j].city.Name
+		return cityCounts[i].name < cityCounts[j].name
 	})
 
-	// Extract top num cities
+	// Extract top 1000 cities
 	var topCityCounts []cityCount
 	for i, cc := range cityCounts {
 		if i >= 1000 {
 			break
 		}
-
 		topCityCounts = append(topCityCounts, cc)
 	}
 	return topCityCounts
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // generateTopCities downloads airports data and generates Go code for top cities
@@ -222,34 +189,33 @@ func generateTopCities(db *orm.DB) error {
 
 	log.Printf("Extracted %d top cities", len(topCities))
 
-	log.Println(topCities[0])
+	if len(topCities) > 0 {
+		log.Printf("Top city: %+v", topCities[0])
+	}
 
 	// Insert into database using GORM
-	insertCount := 0
 	for _, cc := range topCities {
-		for _, iata := range cc.city.IATACodes {
+		for _, iata := range cc.iatas {
 			city := models.AirportCity{
 				IATACode:     iata,
-				Name:         cc.city.Name,
-				Country:      cc.city.Country,
+				Name:         cc.name,
+				Country:      cc.country,
 				AirportCount: cc.count,
 			}
-
 			if err := db.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "iata_code"}},
 				DoUpdates: clause.AssignmentColumns([]string{"name", "country", "airport_count"}),
 			}).Create(&city).Error; err != nil {
-				return fmt.Errorf("failed to insert city %s: %w", cc.city.Name, err)
+				return fmt.Errorf("failed to insert city %s: %w", cc.name, err)
 			}
-			insertCount++
 		}
 	}
 
-	log.Printf("Inserted %d cities into database", len(topCities))
+	log.Printf("Inserted cities into database")
 
 	log.Printf("Top 10 cities by airport count:")
 	for i, cc := range topCities[:min(10, len(topCities))] {
-		log.Printf("%d. %s, %s (%s) - %d airports", i+1, cc.city.Name, cc.city.Country, cc.city.IATACodes, cc.count)
+		log.Printf("%d. %s, %s (%s) - %d airports", i+1, cc.name, cc.country, strings.Join(cc.iatas, ","), cc.count)
 	}
 
 	return nil
@@ -257,7 +223,6 @@ func generateTopCities(db *orm.DB) error {
 
 func main() {
 	_, currentFile, _, _ := runtime.Caller(0)
-	// Adjust paths as needed; assuming cmd/airportcities/main.go
 	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(currentFile)))
 	envPath := filepath.Join(projectRoot, ".env")
 	if err := godotenv.Load(envPath); err != nil {

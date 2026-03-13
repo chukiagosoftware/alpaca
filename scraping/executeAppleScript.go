@@ -11,8 +11,8 @@ import (
 )
 
 func main() {
-	city := "LONDON"
-	country := "GB"
+	city := "MIAMI"
+	country := "US"
 
 	// Initialize database
 	db, err := orm.NewDatabase()
