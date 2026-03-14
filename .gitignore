@@ -4,3 +4,4 @@ main
 .env.local
 .env.*.local
 hotelReviewsSaved/
+config.yaml

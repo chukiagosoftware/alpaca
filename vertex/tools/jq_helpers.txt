@@ -1,0 +1,28 @@
+Generate question embeddings from request.json
+
+{
+  "instances": [
+    {
+      "task_type": "RETRIEVAL_DOCUMENT",
+      "title": "document title",
+      "content": "hotel with great spaghetti"
+    },
+  ],
+}
+
+# Retrieve and jq to get a single line with no spaces.
+
+curl -X POST \
+    -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    -d @request.json \
+    "https://<location>-aiplatform.googleapis.com/v1/projects/<project-id>>/locations/us-central1/publishers/google/models/gemini-embedding-001:predict"
+
+ jq -c '.predictions[0].embeddings.values'
+
+# filter out featureVector since we want metadata results and API doesn't allow to separate them
+cat search_results.json | jq -c '.nearestNeighbors[].neighbors[] | {
+  datapointId: .datapoint.datapointId,
+  distance: .distance,
+  embeddingMetadata: .datapoint.embeddingMetadata
+}'

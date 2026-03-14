@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
@@ -199,6 +200,7 @@ func (s *BQ) fetchReviews(ctx context.Context) ([]models.HotelReview, error) {
 	return reviews, nil
 }
 
+// Todo: implement batch proces with Github Actions Python pipeline
 // AddVectorColumnToHotelReviews adds an embedding column to hotel_reviews table
 func (s *BQ) AddVectorColumnToHotelReviews(ctx context.Context) error {
 	query := fmt.Sprintf("ALTER TABLE `%s.%s.hotel_reviews` ADD COLUMN IF NOT EXISTS embedding ARRAY<FLOAT64>",
@@ -218,7 +220,38 @@ func (s *BQ) AddVectorColumnToHotelReviews(ctx context.Context) error {
 	return nil
 }
 
+// fetchReviewByID fetches a hotel review by its ID from BigQuery
+func (s *BQ) fetchReviewByID(ctx context.Context, idStr string) (*models.HotelReview, error) {
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ID: %w", err)
+	}
+
+	query := fmt.Sprintf("SELECT * FROM `%s.%s.hotel_reviews` WHERE id = @id", s.ProjectID, s.DatasetID)
+	q := s.BQClient.Query(query)
+	q.Parameters = []bigquery.QueryParameter{
+		{Name: "id", Value: id},
+	}
+
+	it, err := q.Read(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run query: %w", err)
+	}
+
+	var review models.HotelReview
+	err = it.Next(&review)
+	if err == iterator.Done {
+		return nil, fmt.Errorf("review not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read row: %w", err)
+	}
+
+	return &review, nil
+}
+
 // GenerateEmbeddingsForHotelReviews generates embeddings for hotel_reviews, with a flag to force rerun
+// Todo: moving this to Python Github Actions due to Go library inconsistency
 func (s *BQ) GenerateEmbeddingsForHotelReviews(ctx context.Context, force bool) error {
 	var condition string
 	if !force {
@@ -242,6 +275,7 @@ func (s *BQ) GenerateEmbeddingsForHotelReviews(ctx context.Context, force bool) 
 	return nil
 }
 
+// Todo: keeping for reference since we will use Vertex AI Vector Search and/or RAG Engine directly
 // SearchSimilarReviewsBQ searches for similar reviews using BigQuery vector search
 func (s *BQ) SearchSimilarReviewsBQ(ctx context.Context, queryEmbedding []float64, limit int) ([]models.HotelReview, error) {
 	query := fmt.Sprintf("SELECT * FROM `%s.%s.hotel_reviews` WHERE embedding IS NOT NULL ORDER BY COSINE_DISTANCE(embedding, @query_embedding) LIMIT @limit",
