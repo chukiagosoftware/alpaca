@@ -15,7 +15,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("Loaded config: ProjectID=%s, Location=%s, DatasetID=%s, IndexID=%s, EndpointID=%s, Domain=%s",
+	log.Printf("Loaded config: ProjectID=%s\n, Location=%s\n, DatasetID=%s\n, IndexID=%s\n, EndpointID=%s\n, Domain=%s\n",
 		config.ProjectID,
 		config.Location,
 		config.DatasetID,
@@ -37,5 +37,16 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to search endpoint:", err)
 	}
-	fmt.Printf("Vertex Endpoint Results: %+v\n", results)
+	fmt.Println("Similar reviews:")
+	for _, result := range results {
+		fmt.Println(result)
+		fmt.Println()
+	}
+
+	recommendation, err := vsSvc.PromptCompletion(ctx, *config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(recommendation)
+
 }

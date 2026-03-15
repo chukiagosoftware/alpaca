@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	aiplatform "cloud.google.com/go/aiplatform/apiv1"
 	"cloud.google.com/go/aiplatform/apiv1/aiplatformpb"
+	structpb "github.com/golang/protobuf/ptypes/struct"
 	"github.com/spf13/viper"
 	"google.golang.org/api/option"
 	"google.golang.org/genai" // Added for GenAI embeddings
@@ -24,6 +26,8 @@ type Config struct {
 	EndpointPublicDomainName     string `mapstructure:"endpoint_public_domain_name"`
 	Limit                        int    `mapstructure:"limit"`
 	Query                        string `mapstructure:"query"`
+	Prompt                       string `mapstructure:"prompt"`
+	CompletionModel              string `mapstructure:"completion_model"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -100,10 +104,22 @@ func (s *VertexSearchService) Close() {
 	}
 }
 
+func (s *VertexSearchService) PromptCompletion(ctx context.Context, config Config) (string, error) {
+	model := config.CompletionModel
+	question := genai.Text(fmt.Sprintf(config.Prompt, config.Query))
+	resp, err := s.genaiClient.Models.GenerateContent(ctx, model, question, &genai.GenerateContentConfig{})
+	if err != nil {
+		return "", err
+
+	}
+	return resp.Text(), nil
+
+}
+
 // GenerateEmbedding converts a user question string into a 768-dimensional vector using Gemini embedding model
-func (s *VertexSearchService) GenerateEmbedding(ctx context.Context, client genai.Client, question string) ([]float32, error) {
+func (s *VertexSearchService) GenerateEmbedding(ctx context.Context, question string) ([]float32, error) {
 	content := genai.NewContentFromText(question, "")
-	result, err := client.Models.EmbedContent(ctx, "gemini-embedding-001", []*genai.Content{content}, nil)
+	result, err := s.genaiClient.Models.EmbedContent(ctx, "gemini-embedding-001", []*genai.Content{content}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
@@ -123,12 +139,10 @@ func (s *VertexSearchService) GenerateEmbedding(ctx context.Context, client gena
 // QuerySimilarReviews takes a user question string, generates its embedding, and queries the deployed Vertex Search index for similar reviews
 func (s *VertexSearchService) QuerySimilarReviews(ctx context.Context, config Config) ([]map[string]any, error) {
 	// Generate embedding for the question
-	queryEmbedding, err := s.GenerateEmbedding(ctx, s.genaiClient, config.Query)
+	queryEmbedding, err := s.GenerateEmbedding(ctx, config.Query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding for question: %w", err)
 	}
-
-	// Use the existing logic to query the index
 	return s.VertexSearchEndpoint(ctx, config, queryEmbedding, config.Limit)
 }
 
@@ -137,7 +151,6 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 
 	// The IndexEndpoint path format is 'projects/{project_id}/locations/{location}/indexEndpoints/{index_endpoint_id}'
 	endpointPath := fmt.Sprintf("projects/%s/locations/%s/indexEndpoints/%s", s.projectID, s.location, config.EndpointID)
-
 	// Convert []float32 to []float64 for the API
 	featureVector := make([]float64, len(queryEmbedding))
 	for i, v := range queryEmbedding {
@@ -170,17 +183,28 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 	fmt.Println("Find Neighbors Results:")
 	for _, nearestNeighbors := range resp.GetNearestNeighbors() {
 		for _, neighbor := range nearestNeighbors.GetNeighbors() {
-			fmt.Printf("  Datapoint ID: %s, Distance: %f\n", neighbor.GetDatapoint().GetDatapointId(), neighbor.GetDistance())
+			//fmt.Printf("  Datapoint ID: %s, Distance: %f\n", neighbor.GetDatapoint().GetDatapointId(), neighbor.GetDistance())
 			searchResult := map[string]any{
 				"id":       neighbor.GetDatapoint().GetDatapointId(),
 				"distance": neighbor.GetDistance(),
 			}
 			// Access metadata
 			if metadata := neighbor.GetDatapoint().GetEmbeddingMetadata(); metadata != nil {
-				fmt.Println("    Metadata:")
 				for key, value := range metadata.Fields {
-					fmt.Printf("      %s: %s\n", key, value)
-					searchResult[key] = value
+					if key == "city" || key == "country" || key == "hotel_name" || key == "review_text" {
+						switch v := value.GetKind().(type) {
+						case *structpb.Value_StringValue:
+							searchResult[key] = strings.TrimSpace(v.StringValue)
+						case *structpb.Value_NumberValue:
+							searchResult[key] = v.NumberValue
+						case *structpb.Value_BoolValue:
+
+							searchResult[key] = v.BoolValue
+						default:
+
+							searchResult[key] = value
+						}
+					}
 				}
 			}
 			reviews = append(reviews, searchResult)
