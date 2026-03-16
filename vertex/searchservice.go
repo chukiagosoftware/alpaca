@@ -104,10 +104,16 @@ func (s *VertexSearchService) Close() {
 	}
 }
 
-func (s *VertexSearchService) PromptCompletion(ctx context.Context, config Config) (string, error) {
+func (s *VertexSearchService) PromptCompletion(ctx context.Context, config Config, results []map[string]any) (string, error) {
 	model := config.CompletionModel
-	question := genai.Text(fmt.Sprintf(config.Prompt, config.Query))
+	resultsStr := ""
+	for _, r := range results {
+		resultsStr += fmt.Sprintf("- Hotel: %v, City: %v, Review: %v\n", r["hotel_name"], r["city"], r["review_text"])
+	}
+
+	question := genai.Text(fmt.Sprintf(config.Prompt, config.Query, resultsStr))
 	resp, err := s.genaiClient.Models.GenerateContent(ctx, model, question, &genai.GenerateContentConfig{})
+
 	if err != nil {
 		return "", err
 
@@ -180,7 +186,6 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 
 	var reviews []map[string]any
 
-	fmt.Println("Find Neighbors Results:")
 	for _, nearestNeighbors := range resp.GetNearestNeighbors() {
 		for _, neighbor := range nearestNeighbors.GetNeighbors() {
 			//fmt.Printf("  Datapoint ID: %s, Distance: %f\n", neighbor.GetDatapoint().GetDatapointId(), neighbor.GetDistance())

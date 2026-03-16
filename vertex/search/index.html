@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Search</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .top-section {
+            display: flex;
+            flex: 1;
+        }
+        .left-column {
+            width: 30%;
+            padding: 20px;
+            border-right: 1px solid #ccc;
+        }
+        .right-column {
+            width: 70%;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .bottom-panel {
+            height: 200px;
+            padding: 20px;
+            border-top: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+        }
+        input, select, button {
+            margin-bottom: 10px;
+            padding: 8px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #results {
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+<div class="top-section">
+    <div class="left-column">
+        <h2>Search Hotels</h2>
+        <form id="searchForm">
+            <label for="question">Question:</label>
+            <input type="text" name="question" id="question" placeholder="Ask a question" value="Find a quiet hotel...">
+
+            <label for="city">City:</label>
+            <select name="city" id="city">
+                <option value="">All Cities</option>
+                <option value="New York">New York</option>
+                <option value="Paris">Paris</option>
+                <option value="Tokyo">Tokyo</option>
+                <!-- Add more cities as needed -->
+            </select>
+
+            <button type="submit">Search</button>
+        </form>
+    </div>
+    <div class="right-column">
+        <h2>Results</h2>
+        <div id="results">Submit a search to see results here.</div>
+    </div>
+</div>
+<div class="bottom-panel">
+    <h3>OpenTelemetry Metrics</h3>
+    <div id="metrics">Metrics will be displayed here.</div>
+</div>
+
+<script src="/static/search.js"></script>
+</body>
+</html>

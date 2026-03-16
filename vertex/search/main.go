@@ -2,12 +2,26 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/vertex"
+	"github.com/gin-contrib/timeout"
+	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
+
+func timeoutResponse(c *gin.Context) {
+	c.String(http.StatusRequestTimeout, "timeout")
+}
+
+func timeoutMiddleware() gin.HandlerFunc {
+	return timeout.New(
+		timeout.WithTimeout(30*time.Second),
+		timeout.WithResponse(timeoutResponse),
+	)
+}
 
 func main() {
 	config, err := vertex.LoadConfig()
@@ -23,9 +37,11 @@ func main() {
 		config.EndpointID,
 		config.EndpointPublicDomainName)
 
+	vertex.InitTracer("alpaca-vertex-search")
+
 	baseCtx := context.Background()
 	ctx, cancel := context.WithTimeout(baseCtx, 60*time.Second)
-	defer cancel() // It's important to call cancel to release resources
+	defer cancel()
 
 	vsSvc, err := vertex.NewVertexSearchService(ctx, config)
 	if err != nil {
@@ -33,20 +49,25 @@ func main() {
 	}
 	defer vsSvc.Close()
 
-	results, err := vsSvc.QuerySimilarReviews(ctx, *config)
-	if err != nil {
-		log.Fatal("Failed to search endpoint:", err)
-	}
-	fmt.Println("Similar reviews:")
-	for _, result := range results {
-		fmt.Println(result)
-		fmt.Println()
-	}
+	// Setup our http server with OpenTelemetry spans
+	r := gin.Default()
+	r.Use(otelgin.Middleware("vertex-search"))
+	r.StaticFile("/", "vertex/search/index.html")
+	r.Static("/static", "vertex/search/static")
 
-	recommendation, err := vsSvc.PromptCompletion(ctx, *config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(recommendation)
+	r.Use(timeoutMiddleware())
 
+	r.POST("/search", func(c *gin.Context) {
+		SearchHandler(c, config, vsSvc)
+	})
+
+	r.GET("/ping", func(c *gin.Context) {
+		// Return JSON response
+		Pong(c)
+	})
+
+	log.Println("Starting server on :8080")
+	if err := r.Run(":8080"); err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }
