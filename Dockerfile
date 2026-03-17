@@ -1,44 +1,33 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git gcc musl-dev sqlite-dev
+# Set working directory
+WORKDIR /alpaca
 
-# Set working directory to the alpaca/alpaca directory
-WORKDIR /app/alpaca/alpaca
+# Copy only necessary Vertex search files and config (no go.mod yet)
+COPY vertex/search/ ./vertex/search/
+COPY vertex/openTelemetry.go ./vertex/
+COPY vertex/searchservice.go ./vertex/
+COPY config.yaml ./
 
-# Copy go mod files
-COPY alpaca/alpaca/go.mod alpaca/alpaca/go.sum ./
+# Initialize a new minimal go.mod based on copied sources (replace module name as needed)
+RUN go mod init github.com/chukiagosoftware/alpaca && go mod tidy
 
-# Download dependencies
-RUN go mod download
+# Build the search application only
+RUN go build -o search vertex/search/main.go vertex/search/http_handlers.go
 
-# Copy source code
-COPY alpaca/alpaca/ .
-
-# Build the application
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o /app/alpaca .
-
-# Runtime stage
 FROM alpine:latest
+# Install CA certificates for TLS verification
+RUN apk add --no-cache ca-certificates
 
-# Install runtime dependencies for SQLite
-RUN apk add --no-cache ca-certificates sqlite
+# Copy the built binary and necessary files
+COPY --from=builder /alpaca/search /search
+COPY --from=builder /alpaca/vertex/search/index.html /vertex/search/
+COPY --from=builder /alpaca/vertex/search/static/ /vertex/search/static/
+COPY --from=builder /alpaca/config.yaml /
 
-# Create app directory
-WORKDIR /app
-
-# Copy binary from builder
-COPY --from=builder /app/alpaca .
-
-# Copy .env file if it exists (optional - can also use environment variables)
-# COPY .env .env
-
-# Create directory for database
-RUN mkdir -p /app/data
-
-# Set environment variable for database path
-ENV SQLITE_DB_PATH=/app/data/alpaca.db
+# Expose port
+EXPOSE 8080
 
 # Run the application
-CMD ["./alpaca"]
+CMD ["/search"]

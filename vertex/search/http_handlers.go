@@ -57,7 +57,7 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 		}
 		_, searchSpan := tracer.Start(ctx, "vector-search")
 		start := time.Now()
-		results, err := vsSvc.VertexSearchEndpoint(ctx, *config, embedding, config.Limit)
+		results, err := vsSvc.VertexSearchEndpoint(ctx, *config, embedding, config.Limit, city)
 		searchTime = time.Since(start)
 		searchSpan.End()
 		if err != nil {

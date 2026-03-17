@@ -3,6 +3,7 @@ AS
 SELECT
     r.id,
     r.review_text,
+    r.reviewer_name,
     h.name AS hotel_name, -- Assuming 'name' is the hotel's name column
     h.City AS city,
     h.Country AS country,

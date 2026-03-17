@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	aiplatform "cloud.google.com/go/aiplatform/apiv1"
-	"cloud.google.com/go/aiplatform/apiv1/aiplatformpb"
-	structpb "github.com/golang/protobuf/ptypes/struct"
+	aiplatformpb "cloud.google.com/go/aiplatform/apiv1/aiplatformpb"
 	"github.com/spf13/viper"
 	"google.golang.org/api/option"
 	"google.golang.org/genai" // Added for GenAI embeddings
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type Config struct {
@@ -143,17 +143,17 @@ func (s *VertexSearchService) GenerateEmbedding(ctx context.Context, question st
 }
 
 // QuerySimilarReviews takes a user question string, generates its embedding, and queries the deployed Vertex Search index for similar reviews
-func (s *VertexSearchService) QuerySimilarReviews(ctx context.Context, config Config) ([]map[string]any, error) {
+func (s *VertexSearchService) QuerySimilarReviews(ctx context.Context, config Config, city string) ([]map[string]any, error) {
 	// Generate embedding for the question
 	queryEmbedding, err := s.GenerateEmbedding(ctx, config.Query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embedding for question: %w", err)
 	}
-	return s.VertexSearchEndpoint(ctx, config, queryEmbedding, config.Limit)
+	return s.VertexSearchEndpoint(ctx, config, queryEmbedding, config.Limit, city)
 }
 
 // VertexSearchEndpoint performs similarity search against a deployed IndexEndpoint.
-func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, limit int) ([]map[string]any, error) {
+func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, limit int, city string) ([]map[string]any, error) {
 
 	// The IndexEndpoint path format is 'projects/{project_id}/locations/{location}/indexEndpoints/{index_endpoint_id}'
 	endpointPath := fmt.Sprintf("projects/%s/locations/%s/indexEndpoints/%s", s.projectID, s.location, config.EndpointID)
@@ -163,17 +163,30 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 		featureVector[i] = float64(v)
 	}
 
+	restrictsParams := []*aiplatformpb.IndexDatapoint_Restriction{}
+
+	restrictsCity := &aiplatformpb.IndexDatapoint_Restriction{
+		Namespace: "city",
+		AllowList: []string{city},
+	}
+
+	if city != "" && city != "All Cities" {
+		restrictsParams = append(restrictsParams, restrictsCity)
+	}
+
 	req := &aiplatformpb.FindNeighborsRequest{
 		IndexEndpoint:   endpointPath,
 		DeployedIndexId: config.DeployedIndexID, // This is the ID of the deployed index, not the endpoint ID
 		// The query is an array of objects, where each object has a Datapoint
+
 		Queries: []*aiplatformpb.FindNeighborsRequest_Query{
 			{
 				Datapoint: &aiplatformpb.IndexDatapoint{
 					FeatureVector: queryEmbedding,
+					Restricts:     restrictsParams,
 				},
-				NeighborCount: int32(config.Limit), // Request top 5 neighbors
-				// Return the full datapoint (including metadata, but not the featureVector itself)
+
+				NeighborCount: int32(config.Limit),
 			},
 		},
 		ReturnFullDatapoint: true,

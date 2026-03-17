@@ -53,23 +53,23 @@ func main() {
 	defer db.Close()
 
 	// Fetch and upload cities
-	var cities []models.AirportCity
-	if err := db.Find(&cities).Error; err != nil {
-		log.Fatalf("Failed to fetch cities: %v", err)
-	}
-	if err := vertex.UploadData(ctx, s, "cities", cities); err != nil {
-		log.Fatalf("Failed to upload cities: %v", err)
-	}
-
-	// Fetch and upload hotels
-	var hotels []models.Hotel
-	if err := db.Find(&hotels).Error; err != nil {
-		log.Fatalf("Failed to fetch hotels: %v", err)
-	}
-	if err := vertex.UploadData(ctx, s, "hotels", hotels); err != nil {
-		log.Fatalf("Failed to upload hotels: %v", err)
-	}
-	log.Printf("Uploaded %d hotels", len(hotels))
+	//var cities []models.AirportCity
+	//if err := db.Find(&cities).Error; err != nil {
+	//	log.Fatalf("Failed to fetch cities: %v", err)
+	//}
+	//if err := vertex.UploadData(ctx, s, "cities", cities); err != nil {
+	//	log.Fatalf("Failed to upload cities: %v", err)
+	//}
+	//
+	//// Fetch and upload hotels
+	//var hotels []models.Hotel
+	//if err := db.Find(&hotels).Error; err != nil {
+	//	log.Fatalf("Failed to fetch hotels: %v", err)
+	//}
+	//if err := vertex.UploadData(ctx, s, "hotels", hotels); err != nil {
+	//	log.Fatalf("Failed to upload hotels: %v", err)
+	//}
+	//log.Printf("Uploaded %d hotels", len(hotels))
 
 	// Fetch and upload reviews
 	var reviews []models.HotelReview
