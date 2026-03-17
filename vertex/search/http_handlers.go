@@ -65,17 +65,7 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 			searchChan <- nil
 			return
 		}
-		// Todo Filter results in vector search first
-		//if city != "" && city != "All Cities" {
-		//	log.Println("Filtering results by city")
-		//	filtered := []map[string]any{}
-		//	for _, result := range results {
-		//		if result["city"].(string) == city {
-		//			filtered = append(filtered, result)
-		//		}
-		//	}
-		//	results = filtered
-		//}
+		log.Println(results)
 		searchChan <- results
 
 	}()

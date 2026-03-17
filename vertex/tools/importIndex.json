@@ -1,5 +1,5 @@
 {
-  "name": "projects/golang1212025/locations/us-central1/indexes/8826943119460139008",
+  "name": "projects/golang1212025/locations/us-central1/indexes/8742711732679475200",
   "isCompleteOverwrite": true,
   "config": {
     "bigQuerySourceConfig": {
@@ -22,6 +22,7 @@
           }
         ],
         "metadataColumns": [
+          "review_text",
           "hotel_name",
           "city",
           "country",

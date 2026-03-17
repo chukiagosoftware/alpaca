@@ -17,6 +17,7 @@ func main() {
 		// You would set these using `pulumi config set gcpProjectID golang1212025` etc.
 		gcpProjectID := conf.Require("gcpProjectID")
 		gcpLocation := conf.Require("gcpLocation")
+		ctx.Export("region", pulumi.String(gcpLocation))
 		indexID := conf.Require("indexID")
 		deployedIndexId := conf.Require("deployedIndexId")
 		machineType := conf.Require("machineType")
@@ -43,7 +44,7 @@ func main() {
 		// This makes your index queryable via the IndexEndpoint.
 		indexEndpointName := string(pulumi.String(deployedIndexId))
 		deployedIndex, err := vertex.NewAiIndexEndpointDeployedIndex(ctx, indexEndpointName, &vertex.AiIndexEndpointDeployedIndexArgs{
-			IndexEndpoint:   indexEndpoint.ID(),                                                                                    // Link to the IndexEndpoint created above
+			IndexEndpoint:   indexEndpoint.ID(),
 			Index:           pulumi.String(fmt.Sprintf("projects/%s/locations/%s/indexes/%s", gcpProjectID, gcpLocation, indexID)), // Full resource name of your existing Index
 			DisplayName:     pulumi.String(deployedIndexId),                                                                        // A name for this specific deployment on the endpoint
 			DeployedIndexId: pulumi.String(deployedIndexId),
