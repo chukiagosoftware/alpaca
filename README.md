@@ -1,6 +1,6 @@
 # Alpaca - Hotel Review Search turbocharged with AI
 
-Find Hotel Reviews with fine-tuned AI powered search criteria. Comprehensive Go microservice suite to fetches, consolidates, and analyzes hotel review data with RAG and LLM.
+Find Hotel Reviews with fine-tuned AI powered search criteria. Comprehensive Go microservice suite to fetch, consolidate, and analyze hotel review data with RAG and LLM.
 
 Uses Google Vertex AI Vector Search for Retrieval Augmentd Generation RAG, and LLM-powered recommendation analysis.
 
