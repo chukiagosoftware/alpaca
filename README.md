@@ -1,4 +1,4 @@
-# Alpaca - Hotel Data Microservice
+# Alpaca - Hotel Review Search turbocharged with AI
 
 Find Hotel Reviews with fine-tuned AI powered search criteria. Comprehensive Go microservice suite to fetches, consolidates, and analyzes hotel review data with RAG and LLM.
 
