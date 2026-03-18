@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/vertex"
@@ -14,11 +15,11 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 	tracer := otel.Tracer("vertex-search")
 
 	// Extract form data
-	question := c.PostForm("question")
+	question := strings.TrimSpace(c.PostForm("question"))
 	if question == "" {
 		question = config.Query // Default from config
 	}
-	city := c.PostForm("city")
+	city := strings.TrimSpace(c.PostForm("city"))
 	log.Printf("City: %s \n", city)
 
 	// Overall span for the request
@@ -57,7 +58,7 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 		}
 		_, searchSpan := tracer.Start(ctx, "vector-search")
 		start := time.Now()
-		results, err := vsSvc.VertexSearchEndpoint(ctx, *config, embedding, config.Limit, city)
+		results, err := vsSvc.VertexSearchEndpoint(ctx, *config, embedding, city)
 		searchTime = time.Since(start)
 		searchSpan.End()
 		if err != nil {
@@ -65,21 +66,20 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 			searchChan <- nil
 			return
 		}
-		log.Println(results)
+		// log.Println(results)
 		searchChan <- results
 
 	}()
 
 	go func() {
-		results := <-searchChan
-		if results == nil {
-			completionChan <- "Error in processing"
+		similarityResults := <-searchChan
+		if similarityResults == nil {
+			completionChan <- "No Vector Similarity Results"
 			return
 		}
 		_, completionSpan := tracer.Start(ctx, "llm-completion")
 		start := time.Now()
-		completion, err := vsSvc.PromptCompletion(ctx, *config, results)
-		log.Println(completion)
+		completion, err := vsSvc.PromptCompletion(ctx, *config, question, similarityResults)
 		completionTime = time.Since(start)
 		completionSpan.End()
 		if err != nil {

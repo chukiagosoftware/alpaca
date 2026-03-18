@@ -18,7 +18,7 @@ func timeoutResponse(c *gin.Context) {
 
 func timeoutMiddleware() gin.HandlerFunc {
 	return timeout.New(
-		timeout.WithTimeout(30*time.Second),
+		timeout.WithTimeout(60*time.Second),
 		timeout.WithResponse(timeoutResponse),
 	)
 }
@@ -39,9 +39,8 @@ func main() {
 
 	vertex.InitTracer("alpaca-vertex-search")
 
-	baseCtx := context.Background()
-	ctx, cancel := context.WithTimeout(baseCtx, 60*time.Second)
-	defer cancel()
+	ctx := context.Background()
+	// defer cancel()
 
 	vsSvc, err := vertex.NewVertexSearchService(ctx, config)
 	if err != nil {

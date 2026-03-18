@@ -104,15 +104,15 @@ func (s *VertexSearchService) Close() {
 	}
 }
 
-func (s *VertexSearchService) PromptCompletion(ctx context.Context, config Config, results []map[string]any) (string, error) {
+func (s *VertexSearchService) PromptCompletion(ctx context.Context, config Config, question string, results []map[string]any) (string, error) {
 	model := config.CompletionModel
 	resultsStr := ""
 	for _, r := range results {
 		resultsStr += fmt.Sprintf("- Hotel: %v, City: %v, Review: %v\n", r["hotel_name"], r["city"], r["review_text"])
 	}
 
-	question := genai.Text(fmt.Sprintf(config.Prompt, config.Query, resultsStr))
-	resp, err := s.genaiClient.Models.GenerateContent(ctx, model, question, &genai.GenerateContentConfig{})
+	prompt := genai.Text(fmt.Sprintf(config.Prompt, question, resultsStr))
+	resp, err := s.genaiClient.Models.GenerateContent(ctx, model, prompt, &genai.GenerateContentConfig{})
 
 	if err != nil {
 		return "", err
@@ -142,18 +142,8 @@ func (s *VertexSearchService) GenerateEmbedding(ctx context.Context, question st
 	return embedding, nil
 }
 
-// QuerySimilarReviews takes a user question string, generates its embedding, and queries the deployed Vertex Search index for similar reviews
-func (s *VertexSearchService) QuerySimilarReviews(ctx context.Context, config Config, city string) ([]map[string]any, error) {
-	// Generate embedding for the question
-	queryEmbedding, err := s.GenerateEmbedding(ctx, config.Query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate embedding for question: %w", err)
-	}
-	return s.VertexSearchEndpoint(ctx, config, queryEmbedding, config.Limit, city)
-}
-
 // VertexSearchEndpoint performs similarity search against a deployed IndexEndpoint.
-func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, limit int, city string) ([]map[string]any, error) {
+func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, city string) ([]map[string]any, error) {
 
 	// The IndexEndpoint path format is 'projects/{project_id}/locations/{location}/indexEndpoints/{index_endpoint_id}'
 	endpointPath := fmt.Sprintf("projects/%s/locations/%s/indexEndpoints/%s", s.projectID, s.location, config.EndpointID)
@@ -163,7 +153,7 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 		featureVector[i] = float64(v)
 	}
 
-	restrictsParams := []*aiplatformpb.IndexDatapoint_Restriction{}
+	var restrictsParams []*aiplatformpb.IndexDatapoint_Restriction
 
 	restrictsCity := &aiplatformpb.IndexDatapoint_Restriction{
 		Namespace: "city",
