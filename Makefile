@@ -1,4 +1,4 @@
-# Makefile — place in alpaca/ root
+# Makefile for Google Vector Search Index and IndexEndpoint
 
 STACK         := dev
 INDEX_DIR     := pulumiVectorIndex
