@@ -22,7 +22,7 @@ func main() {
 		deployedIndexID := cfg.Require("deployedIndexID")
 		indexID := cfg.Require("indexID")
 
-		// -- Service Account (placeholder name, swap when created) --
+		// -- Service Account Vertex permission
 		sa, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding", &projects.IAMMemberArgs{
 			Project: pulumi.String(project),
 			Role:    pulumi.String("roles/aiplatform.user"),

@@ -8,3 +8,4 @@ hotelReviewsSaved/
 go.sum
 go.mod
 SQL
+*.dat

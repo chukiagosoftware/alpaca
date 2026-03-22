@@ -9,7 +9,7 @@ document.getElementById('searchForm').addEventListener('submit', async (e) => {
 
     // Update results in right column
     let resultsHtml = '';
-    resultsHtml += `<p><strong>Completion:</strong> ${data.completion}</p>`;
+    resultsHtml += `${data.completion}`;
     document.getElementById('results').innerHTML = resultsHtml;
 
     // Update metrics in bottom panel
