@@ -58,7 +58,7 @@ func (p *tripAdvisorProvider) fetchHotels(ctx context.Context, location string) 
 	baseURL := "https://api.content.tripadvisor.com/api/v1/location/search"
 
 	params := url.Values{}
-	params.Set("searchQuery", location+" hotels")
+	params.Set("searchQuery", location) //+" hotels"
 	params.Set("category", "hotels")
 	params.Set("language", "en")
 	params.Set("key", p.apiKey)

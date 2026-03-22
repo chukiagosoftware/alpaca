@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/internal/orm"
@@ -51,22 +49,22 @@ func main() {
 		log.Printf("Processing city: %s (%s)", city.Name, city.IATACode)
 
 		// Fetch from Amadeus
-		hotelIDs, err := fetchHotelsForCity(ctx, db, city.IATACode)
-		log.Println("We are now getting custom list")
+		//hotelIDs, err := fetchHotelsForCity(ctx, db, city.IATACode)
+		//log.Println("We are now getting custom list")
+		//
+		//if err != nil {
+		//	log.Printf("Error fetching from Amadeus for %s: %v", city.IATACode, err)
+		//} else {
+		//	totalAmadeusHotels += len(hotelIDs)
+		//	log.Printf("Fetched %d hotels from Amadeus for %s", len(hotelIDs), city.IATACode)
+		//	// Fetch detailed data for these hotels
+		//	err = fetchDetailedDataForHotels(ctx, db, hotelIDs)
+		//	if err != nil {
+		//		log.Printf("Error fetching detailed data for %s: %v", city.IATACode, err)
+		//	}
+		//}
 
-		if err != nil {
-			log.Printf("Error fetching from Amadeus for %s: %v", city.IATACode, err)
-		} else {
-			totalAmadeusHotels += len(hotelIDs)
-			log.Printf("Fetched %d hotels from Amadeus for %s", len(hotelIDs), city.IATACode)
-			// Fetch detailed data for these hotels
-			err = fetchDetailedDataForHotels(ctx, db, hotelIDs)
-			if err != nil {
-				log.Printf("Error fetching detailed data for %s: %v", city.IATACode, err)
-			}
-		}
-
-		// Fetch from multi-source providers
+		// Fetch from enabled API providers
 		location := fmt.Sprintf("%s, %s", city.Name, city.Country)
 		multiResults, err := hotelFetcher.fetchFromAllSources(ctx, location)
 		if err != nil {
@@ -88,16 +86,21 @@ func main() {
 
 // getTargetCities retrieves cities from .env
 func getTargetCities(db *orm.DB) ([]models.AirportCity, error) {
-	citiesStr := os.Getenv("HOTEL_CITIES")
-	if citiesStr == "" {
-		citiesStr = "LON,AUS" // Default fallback
-	}
-	cityList := strings.Split(citiesStr, ",")
-	for i, c := range cityList {
-		cityList[i] = strings.TrimSpace(c)
-	}
+	//citiesStr := os.Getenv("HOTEL_CITIES")
+	//if citiesStr == "" {
+	//	citiesStr = "LON,AUS" // Default fallback
+	//}
+	//cityList := strings.Split(citiesStr, ",")
+	//for i, c := range cityList {
+	//	cityList[i] = strings.TrimSpace(c)
+	//}
 
 	var airportCities []models.AirportCity
-	err := db.Where("iata_code IN ?", cityList).Find(&airportCities).Error
+	//err := db.Where("iata_code IN ?", cityList).Find(&airportCities).Error
+	err := db.Find(&airportCities).Error
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Loaded %d cities\n", len(airportCities))
 	return airportCities, err
 }

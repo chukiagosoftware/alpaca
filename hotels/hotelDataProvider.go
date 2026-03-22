@@ -28,8 +28,9 @@ func newHotelFetcher(db *orm.DB) *hotelFetcher {
 	return &hotelFetcher{
 		db: db,
 		providers: []hotelDataProvider{
-			newGooglePlacesProvider(),
+			//newGooglePlacesProvider(),
 			//newYelpProvider(),
+			newTripAdvisorProvider(),
 		},
 	}
 }

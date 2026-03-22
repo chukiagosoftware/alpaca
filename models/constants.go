@@ -4,7 +4,7 @@ package models
 const (
 	HotelSourceAmadeus     = "amadeus"
 	HotelSourceExpedia     = "expedia"
-	HotelSourceTripadvisor = "tripadvisor"
+	HotelSourceTripadvisor = "tripadvisorAPI"
 	HotelSourceGoogle      = "google"
 	HotelSourceBooking     = "booking"
 	HotelSourceYelp        = "yelp"

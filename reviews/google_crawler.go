@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/models"
@@ -90,15 +91,18 @@ func (c *GoogleCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) (
 			continue
 		}
 
+		reviewId64, _ := strconv.ParseInt(rev.PublishTime, 10, 32)
+		reviewId := int32(reviewId64)
+
 		rating := rev.Rating
 		review := &models.HotelReview{
 			HotelID:        hotel.HotelID,
 			Source:         models.SourceGoogle,
-			SourceReviewID: rev.PublishTime, // Use publish time as unique ID
+			SourceReviewID: reviewId, // Use publish time as unique ID
 			ReviewerName:   rev.AuthorAttribution.DisplayName,
-			Rating:         &rating,
+			Rating:         rating,
 			ReviewText:     rev.Text.Text,
-			ReviewDate:     &reviewDate,
+			ReviewDate:     reviewDate,
 			Verified:       true, // Google reviews are verified
 			HelpfulCount:   0,    // Not provided by API
 		}

@@ -80,12 +80,12 @@ func (p *yelpProvider) fetchHotels(ctx context.Context, location string) ([]*mod
 			Name:          b.Name,
 			City:          b.Location.City,
 			Country:       b.Location.Country,
-			Latitude:      &b.Coordinates.Latitude,
-			Longitude:     &b.Coordinates.Longitude,
+			Latitude:      b.Coordinates.Latitude,
+			Longitude:     b.Coordinates.Longitude,
 			StreetAddress: b.Location.Address1,
 			PostalCode:    b.Location.ZipCode,
 			Phone:         b.Phone,
-			YelpRating:    b.Rating,
+			//YelpRating:    b.Rating, // never fetched yet
 		}
 
 		hotels = append(hotels, hotel)

@@ -6,10 +6,10 @@ import (
 
 // HotelReview represents the hotel_reviews table (DB model with GORM, JSON, and BigQuery tags)
 type HotelReview struct {
-	ID               int64     `gorm:"primaryKey" json:"id" bigquery:"id"`
+	ID               int32     `gorm:"primaryKey" json:"id" bigquery:"id"`
 	HotelID          string    `gorm:"not null" json:"hotelId" bigquery:"hotel_id"`
 	Source           string    `gorm:"not null;uniqueIndex:idx_source_review_id" json:"source" bigquery:"source"`
-	SourceReviewID   string    `gorm:"uniqueIndex:idx_source_review_id" json:"sourceReviewId" bigquery:"source_review_id"`
+	SourceReviewID   int32     `gorm:"uniqueIndex:idx_source_review_id" json:"sourceReviewId" bigquery:"source_review_id"`
 	ReviewerName     string    `json:"reviewerName,omitempty" bigquery:"reviewer_name"`
 	ReviewerLocation string    `json:"reviewerLocation,omitempty" bigquery:"reviewer_location"`
 	Rating           float64   `json:"rating,omitempty" bigquery:"rating"`
@@ -26,12 +26,13 @@ type HotelReview struct {
 
 // ReviewSource represents different review sources
 const (
-	SourceTripadvisor  = "tripadvisor"
-	SourceGoogle       = "google"
-	SourceExpedia      = "expedia"
-	SourceBooking      = "booking"
-	SourceHotelWebsite = "hotel_website"
-	SourceBing         = "bing"
-	SourceYelp         = "yelp"
-	SourceAmadeus      = "amadeus"
+	SourceTripadvisor    = "tripadvisor"
+	SourceTripadvisorAPI = "tripadvisorAPI"
+	SourceGoogle         = "google"
+	SourceExpedia        = "expedia"
+	SourceBooking        = "booking"
+	SourceHotelWebsite   = "hotel_website"
+	SourceBing           = "bing"
+	SourceYelp           = "yelp"
+	SourceAmadeus        = "amadeus"
 )
