@@ -42,7 +42,7 @@ func NewDatabase() (*DB, error) {
 	log.Printf("Connected to SQLite database: %s", dbPath)
 
 	// Run auto-migrations for kept tables
-	db = db.Debug() //Gorm detailed logs
+	//db = db.Debug() //Gorm detailed logs
 	if err := db.AutoMigrate(
 		&models.Hotel{},
 		&models.HotelReview{},

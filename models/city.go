@@ -6,6 +6,13 @@ type AirportCity struct {
 	Name         string `gorm:"not null" bigquery:"name"`
 	Country      string `gorm:"not null" bigquery:"country"`
 	AirportCount int    `gorm:"column:airport_count;default:0" bigquery:"airport_count"`
+	CountryCodes string `gorm:"column:country_codes"x bigquery:"country_codes"`
+}
+
+type Country struct {
+	Name  string
+	ISO2  string
+	Codes string
 }
 
 // Airport represents an airport from the OpenFlights dataset
