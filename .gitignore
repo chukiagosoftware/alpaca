@@ -9,3 +9,5 @@ go.sum
 go.mod
 SQL
 *.dat
+*.txt
+ta_review_download_statistics/

@@ -9,6 +9,12 @@ type AirportCity struct {
 	CountryCodes string `gorm:"column:country_codes"x bigquery:"country_codes"`
 }
 
+type City struct {
+	id      int    `gorm:"primaryKey" bigquery:"id"`
+	Name    string `gorm:"not null" bigquery:"name"`
+	Country string `gorm:"not null" bigquery:"country"`
+}
+
 type Country struct {
 	Name  string
 	ISO2  string

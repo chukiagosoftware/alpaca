@@ -48,6 +48,7 @@ func NewDatabase() (*DB, error) {
 		&models.HotelReview{},
 		&models.AirportCity{},
 		&models.AmadeusTestDetailedDataUnavailable{},
+		&models.City{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
