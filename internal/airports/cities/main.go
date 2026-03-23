@@ -27,20 +27,7 @@ type Country struct {
 
 // downloadAirportsData downloads the OpenFlights airports dataset (reused as is)
 func downloadAirportsData() ([]models.Airport, error) {
-	// Source:
-	//url := "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat"
-	//
-	//log.Printf("Downloading airports data from: %s", url)
-	//
-	//resp, err := http.Get(url)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to download airports data: %w", err)
-	//}
-	//defer resp.Body.Close()
-	//
-	//if resp.StatusCode != http.StatusOK {
-	//	return nil, fmt.Errorf("failed to download airports data: status %d", resp.StatusCode)
-	//}
+
 	airportsList, err := os.Open("internal/airports/cities/airports.dat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open airports.dat: %w", err)
@@ -97,17 +84,6 @@ func downloadCitiesCountries(db *gorm.DB) error {
 	}
 	fmt.Printf("maxPerCountry = %s\n", maxPerCountry)
 
-	// Source:
-	//countriesURL := "https://raw.githubusercontent.com/jpatokal/openflights/master/data/countries.dat"
-	//resp, err := http.Get(countriesURL)
-	//if err != nil {
-	//	return fmt.Errorf("failed to fetch countries.dat: %w", err)
-	//}
-	//defer resp.Body.Close()
-	//
-	//if resp.StatusCode != http.StatusOK {
-	//	return fmt.Errorf("HTTP error for countries: %d", resp.StatusCode)
-	//}
 	countriesFile, err := os.Open("internal/airports/cities/countries.dat")
 	if err != nil {
 		return fmt.Errorf("failed to open countries.dat: %w", err)
