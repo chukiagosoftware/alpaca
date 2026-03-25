@@ -21,7 +21,8 @@ type Hotel struct {
 	Email             string
 	AmadeusRating     float64 `gorm:"column:amadeus_rating" bigquery:"amadeus_rating"`
 	GoogleRating      float64 `gorm:"column:google_rating" bigquery:"google_rating"`
-	TripadvisorRating float64 `gorm:"column:tripadvisor_rating" bigquery:"tripadvisor_rating"`
+	TripAdvisorRating float64 `gorm:"column:tripadvisor_rating" bigquery:"tripadvisor_rating"`
+	BookingRating     float64 `gorm:"column:booking_rating" bigquery:"booking_rating"`
 	Recommended       bool    `gorm:"default:false"`
 	AdminFlag         bool    `gorm:"column:admin_flag;default:false" bigquery:"admin_flag"`
 	Quality           bool    `gorm:"default:false"`

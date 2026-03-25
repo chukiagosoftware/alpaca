@@ -116,14 +116,16 @@ func (p *googlePlacesProvider) fetchHotels(ctx context.Context, location string)
 				return nil, fmt.Errorf("error decoding response: %w", err)
 			}
 
+			location := strings.Split(location, ",")
+			cityOriginal, countryOriginal := location[0], location[1]
+
 			for _, place := range placesResp.Places {
 				lat := place.Location.LatLng.Latitude
 				lng := place.Location.LatLng.Longitude
 				rating := place.Rating
 				// Debug logging for lat/lng
-				log.Printf("Hotel %s (%s): lat=%f, lng=%f", place.ID, place.DisplayName.Text, lat, lng)
-
-				city, country, state := parseAddressComponents(place.FormattedAddress)
+				log.Printf("Hotel %v\n\n", place)
+				_, _, state, zip := parseAddressComponents(place.FormattedAddress)
 
 				hotelID := fmt.Sprintf("google_%s", place.ID)
 				if _, exists := hotelMap[hotelID]; !exists {
@@ -132,10 +134,11 @@ func (p *googlePlacesProvider) fetchHotels(ctx context.Context, location string)
 						Source:        models.HotelSourceGoogle,
 						SourceHotelID: place.ID,
 						Name:          place.DisplayName.Text,
-						City:          city,
-						Country:       country,
+						City:          cityOriginal,
+						Country:       countryOriginal,
 						StreetAddress: place.FormattedAddress,
 						StateCode:     state,
+						PostalCode:    zip,
 						Latitude:      lat,
 						Longitude:     lng,
 						GoogleRating:  rating,
@@ -165,7 +168,7 @@ func (p *googlePlacesProvider) fetchHotels(ctx context.Context, location string)
 // ... existing code ...
 
 // parseAddressComponents parses city, country, and state from formatted address
-func parseAddressComponents(address string) (city, country, state string) {
+func parseAddressComponents(address string) (city, country, state, zip string) {
 	parts := strings.Split(address, ",")
 	partsLen := len(parts)
 	if partsLen == 0 {
@@ -189,6 +192,7 @@ func parseAddressComponents(address string) (city, country, state string) {
 			if len(fields) >= 2 {
 				state = fields[0] // State code (e.g., CO)
 				city = parts[partsLen-3]
+				zip = fields[1]
 			}
 		}
 	} else if country == "Australia" {

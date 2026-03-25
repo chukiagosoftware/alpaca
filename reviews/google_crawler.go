@@ -2,19 +2,28 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/models"
+	"gorm.io/gorm"
 )
 
 type googlePlaceDetailsResponse struct {
+	// GET https://places.googleapis.com/v1/{name=places/*/photos/*/media} ->
+	// returns "name": string,
+	//         "photoUri": string
+	Photos []struct {
+		Name string `json:"name"`
+	}
 	Reviews []struct {
 		AuthorAttribution struct {
 			DisplayName string `json:"displayName"`
@@ -24,7 +33,8 @@ type googlePlaceDetailsResponse struct {
 		Text   struct {
 			Text string `json:"text"`
 		} `json:"text"`
-		PublishTime string `json:"publishTime"`
+		PublishTime   string `json:"publishTime"`
+		GoogleMapsURI string `json:"googleMapsUri"`
 	} `json:"reviews"`
 }
 
@@ -45,19 +55,21 @@ func (c *GoogleCrawler) GetSourceName() string {
 	return models.SourceGoogle
 }
 
-func (c *GoogleCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) ([]*models.HotelReview, error) {
-	// Only crawl if the hotel is from Google and has a place ID
-	if hotel.Source != models.HotelSourceGoogle || hotel.SourceHotelID == "" {
-		log.Printf("Skipping Google reviews for hotel %s (no Google place ID)", hotel.Name)
-		return []*models.HotelReview{}, nil
+func (c *GoogleCrawler) FetchReviewsForLocation(ctx context.Context, locationID string, db *gorm.DB) ([]*models.HotelReview, error) {
+
+	var review models.HotelReview
+	err := db.Where("hotel_id = ? AND source = ?", locationID, models.SourceGoogle).
+		First(&review).Error
+
+	if err == nil {
+		return nil, errors.New(fmt.Sprintf("already fetched reviews for %s", locationID))
 	}
 
-	if c.apiKey == "" {
-		log.Printf("Google Places API key not set, skipping reviews for hotel %s", hotel.Name)
-		return []*models.HotelReview{}, nil
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
 	}
 
-	url := fmt.Sprintf("https://places.googleapis.com/v1/places/%s", hotel.SourceHotelID)
+	url := fmt.Sprintf("https://places.googleapis.com/v1/places/%s", locationID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -65,7 +77,7 @@ func (c *GoogleCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) (
 	}
 
 	req.Header.Set("X-Goog-Api-Key", c.apiKey)
-	req.Header.Set("X-Goog-FieldMask", "reviews")
+	req.Header.Set("X-Goog-FieldMask", "reviews,photos")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -91,24 +103,34 @@ func (c *GoogleCrawler) CrawlReviews(ctx context.Context, hotel *models.Hotel) (
 			continue
 		}
 
-		reviewId64, _ := strconv.ParseInt(rev.PublishTime, 10, 32)
-		reviewId := int32(reviewId64)
+		hash := sha256.New()
+		hash.Write([]byte(rev.Text.Text))
+		reviewId := hex.EncodeToString(hash.Sum(nil))
 
 		rating := rev.Rating
+		var photo string
+		if photos := len(detailsResp.Photos); photos > 0 {
+			photo = detailsResp.Photos[0].Name
+		}
+
 		review := &models.HotelReview{
-			HotelID:        hotel.HotelID,
-			Source:         models.SourceGoogle,
-			SourceReviewID: reviewId, // Use publish time as unique ID
-			ReviewerName:   rev.AuthorAttribution.DisplayName,
-			Rating:         rating,
-			ReviewText:     rev.Text.Text,
-			ReviewDate:     reviewDate,
-			Verified:       true, // Google reviews are verified
-			HelpfulCount:   0,    // Not provided by API
+			ID:               0,
+			HotelID:          locationID,
+			Source:           models.SourceGoogle,
+			SourceReviewID:   reviewId,
+			ReviewerName:     rev.AuthorAttribution.DisplayName,
+			ReviewerLocation: rev.AuthorAttribution.URI,
+			Rating:           rating,
+			ReviewText:       rev.Text.Text,
+			ReviewDate:       reviewDate,
+			Verified:         true,
+			GoogleMapsURI:    rev.GoogleMapsURI,
+			Photo:            photo,
 		}
 		reviews = append(reviews, review)
 	}
 
-	log.Printf("Fetched %d reviews from Google for hotel %s", len(reviews), hotel.Name)
+	log.Printf("Fetched %d reviews from Google for hotel %s", len(reviews), locationID)
+	log.Println(reviews)
 	return reviews, nil
 }

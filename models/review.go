@@ -9,7 +9,7 @@ type HotelReview struct {
 	ID               int32     `gorm:"primaryKey" json:"id" bigquery:"id"`
 	HotelID          string    `gorm:"not null" json:"hotelId" bigquery:"hotel_id"`
 	Source           string    `gorm:"not null;uniqueIndex:idx_source_review_id" json:"source" bigquery:"source"`
-	SourceReviewID   int32     `gorm:"uniqueIndex:idx_source_review_id" json:"sourceReviewId" bigquery:"source_review_id"`
+	SourceReviewID   string    `gorm:"uniqueIndex:idx_source_review_id" json:"sourceReviewId" bigquery:"source_review_id"`
 	ReviewerName     string    `json:"reviewerName,omitempty" bigquery:"reviewer_name"`
 	ReviewerLocation string    `json:"reviewerLocation,omitempty" bigquery:"reviewer_location"`
 	Rating           float64   `json:"rating,omitempty" bigquery:"rating"`
@@ -22,17 +22,6 @@ type HotelReview struct {
 	StayDate         time.Time `json:"stayDate,omitempty" bigquery:"stay_date"`
 	CreatedAt        time.Time `json:"createdAt" bigquery:"created_at"`
 	UpdatedAt        time.Time `json:"updatedAt" bigquery:"updated_at"`
+	GoogleMapsURI    string    `gorm:"column:google_maps_uri" json:"googleMapsURI" bigquery:"google_maps_uri"`
+	Photo            string    `gorm:"column:photo_name" json:"photo_name" bigquery:"photo_name"`
 }
-
-// ReviewSource represents different review sources
-const (
-	SourceTripadvisor    = "tripadvisor"
-	SourceTripadvisorAPI = "tripadvisorAPI"
-	SourceGoogle         = "google"
-	SourceExpedia        = "expedia"
-	SourceBooking        = "booking"
-	SourceHotelWebsite   = "hotel_website"
-	SourceBing           = "bing"
-	SourceYelp           = "yelp"
-	SourceAmadeus        = "amadeus"
-)

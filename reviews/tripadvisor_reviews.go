@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -14,6 +17,7 @@ import (
 	"github.com/chukiagosoftware/alpaca/models"
 	"github.com/go-resty/resty/v2"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 )
 
 // TripAdvisorReviewsService handles fetching reviews from TripAdvisor Content API
@@ -108,35 +112,38 @@ func (s *TripAdvisorReviewsService) randomDelay(minMs, maxMs int) {
 	time.Sleep(time.Duration(delayMs) * time.Millisecond)
 }
 
-// FetchReviewsForLocation fetches reviews for a TripAdvisor location ID (e.g., hotel)
+// FetchReviewsForLocation fetches reviews for a TripAdvisor locationID (e.g., hotel)
 // Endpoint: /location/{location_id}/reviews
-// Paginated: Loops with reviews_start_at until maxReviews or no more
-// Returns up to maxReviews (default 100); sorts by recent
-func (s *TripAdvisorReviewsService) FetchReviewsForLocation(ctx context.Context, locationID string, maxReviews int) ([]*models.HotelReview, error) {
-	if maxReviews == 0 {
-		maxReviews = 100 // Default
+// Simple offset and break based on len(apiResp.Data) an array of reviews. Pagination not available for basic API
+func (s *TripAdvisorReviewsService) FetchReviewsForLocation(ctx context.Context, locationID string, db *gorm.DB) ([]*models.HotelReview, error) {
+
+	var review models.HotelReview
+	err := db.Where("hotel_id = ? AND source = ?", locationID, models.SourceTripadvisor).
+		First(&review).Error
+
+	if err == nil {
+		return nil, errors.New(fmt.Sprintf("already fetched reviews for %s", locationID))
 	}
 
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	maxReviews := 100
 	var allReviews []*models.HotelReview
 	offset := 0
-	limit := 5     // Free tier; set to 100 for paid
-	maxPages := 10 // Safety: Prevent infinite loop if total=0
 
-	pageCount := 0
-	//var currentReviewID int32 = 20000
-
-	for len(allReviews) < maxReviews && pageCount < maxPages {
+	for len(allReviews) < maxReviews {
 		url := fmt.Sprintf("%s/location/%s/reviews", s.baseURL, locationID)
 
 		resp, err := s.client.R().
 			SetContext(ctx).
 			SetQueryParams(map[string]string{
-				"key":            s.apiKey,
-				"lang":           "en_US",
-				"currency":       "USD",
-				"reviews_sort":   "recent_first",
-				"reviews_limit":  strconv.Itoa(limit),
-				"reviews_offset": strconv.Itoa(offset),
+				"key":          s.apiKey,
+				"language":     "en",
+				"reviews_sort": "recent_first",
+				"limit":        strconv.Itoa(maxReviews),
+				"offset":       strconv.Itoa(offset),
 			}).
 			Get(url)
 		if err != nil {
@@ -170,41 +177,34 @@ func (s *TripAdvisorReviewsService) FetchReviewsForLocation(ctx context.Context,
 				} `json:"owner_response"`
 			} `json:"data"`
 			Paging struct {
-				TotalResults int `json:"total_results"`
-				Total        int `json:"total"` // Fallback if API uses "total"
+				Next         string `json:"next"`
+				Previous     string `json:"previous"`
+				Results      int    `json:"results"`
+				Skipped      int    `json:"skipped"`
+				TotalResults int    `json:"total_results"`
 			} `json:"paging"`
+			Error struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    int    `json:"code"`
+			}
 		}
 		if err := json.Unmarshal(resp.Body(), &apiResp); err != nil {
 			return nil, fmt.Errorf("JSON unmarshal failed for location %s (offset %d): %w", locationID, offset, err)
 		}
 
 		reviews := apiResp.Data
-		total := apiResp.Paging.TotalResults
-		if total == 0 {
-			total = apiResp.Paging.Total // Try fallback
-		}
-
 		if len(reviews) == 0 {
-			log.Printf("No more reviews for location %s (offset %d, total: %d)", locationID, offset, total)
-			break // End of data
+			log.Printf("No more reviews received for location %s (offset %d)", locationID, offset)
+			break
 		}
 
-		if len(reviews) < limit {
-			log.Printf("Partial page for location %s (offset %d): %d < limit %d; end of data", locationID, offset, len(reviews), limit)
-			// Don't increment offset—last page
-		}
-
-		// Map to models.HotelReview (adjust fields to your model)
 		for _, r := range reviews {
-			if len(allReviews) >= maxReviews {
-				break
-			}
-
-			sourceReviewID := int32(r.ID)
-			if sourceReviewID == 0 {
-				log.Printf("Skipping invalid review ID 0 for location %s", locationID)
-				continue
-			}
+			hash := sha256.New()
+			// identify matching review text instead of arbitrary ID across method
+			hash.Write([]byte(r.Text))
+			sourceReviewID := hex.EncodeToString(hash.Sum(nil))
+			//sourceReviewID := int32(r.ID)
 
 			date, dateErr := parseTripAdvisorDate(r.ReviewDate)
 			if dateErr != nil {
@@ -213,9 +213,9 @@ func (s *TripAdvisorReviewsService) FetchReviewsForLocation(ctx context.Context,
 			}
 
 			allReviews = append(allReviews, &models.HotelReview{
-				ID:               0,          // Let GORM auto-generate primary key
-				HotelID:          locationID, // Temporary; overridden in BatchFetchReviewsForHotels
-				Source:           models.SourceTripadvisorAPI,
+				// Let Gorm set record ID
+				HotelID:          locationID,
+				Source:           models.SourceTripadvisor,
 				SourceReviewID:   sourceReviewID,
 				ReviewText:       r.Title + "\n" + r.Text,
 				Rating:           r.Rating,
@@ -226,49 +226,13 @@ func (s *TripAdvisorReviewsService) FetchReviewsForLocation(ctx context.Context,
 			})
 		}
 
-		offset += limit
-		pageCount++
-		log.Printf("Fetched %d reviews for location %s (offset %d, page %d, total so far: %d / %d)", len(reviews), locationID, offset-limit, pageCount, len(allReviews), total)
-
 		// Random delay
 		s.randomDelay(300, 800)
 
-		// Stop if reached total or partial page
-		if len(reviews) < limit || offset >= total {
-			log.Printf("Pagination complete for location %s (reached end/total %d)", locationID, total)
-			break
-		}
+		log.Printf("Received: %d reviews for location %s, offset:%d\n", len(reviews), locationID, offset)
 
-		if pageCount >= maxPages {
-			log.Printf("Warning: Hit max pages (%d) for location %s - possible infinite data or parsing issue", maxPages, locationID)
-		}
-
-		log.Printf("Completed: %d reviews for location %s (from %d pages, total available: %d)", len(allReviews), locationID, pageCount, total)
+		offset += len(reviews)
 	}
+
 	return allReviews, nil
-}
-
-// BatchFetchReviewsForHotels fetches reviews for multiple hotels (e.g., from selected cities)
-// Use after fetching hotels with TA location IDs
-func (s *TripAdvisorReviewsService) BatchFetchReviewsForHotels(ctx context.Context, hotels []*models.Hotel, maxPerHotel int) map[string][]*models.HotelReview {
-	reviewsMap := make(map[string][]*models.HotelReview)
-	for _, hotel := range hotels {
-		if hotel.SourceHotelID == "" { // Assume field for TripAdvisor ID
-			log.Printf("Skipping hotel %s: No TA location ID", hotel.Name)
-			continue
-		}
-
-		reviews, err := s.FetchReviewsForLocation(ctx, hotel.SourceHotelID, maxPerHotel)
-		if err != nil {
-			log.Printf("Failed reviews for %s (%s): %v", hotel.Name, hotel.SourceHotelID, err)
-			continue
-		}
-		for _, review := range reviews {
-			review.HotelID = hotel.HotelID // Link to internal hotel ID
-		}
-		reviewsMap[hotel.HotelID] = reviews
-
-		time.Sleep(1 * time.Second) // Rate limit between hotels
-	}
-	return reviewsMap
 }

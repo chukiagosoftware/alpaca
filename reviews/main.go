@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/internal/orm"
@@ -20,8 +21,7 @@ import (
 // ReviewSource defines the interface for review sources
 type ReviewSource interface {
 	GetSourceName() string
-	FetchReviewsForLocation(context.Context, string, int) ([]*models.HotelReview, error)
-	BatchFetchReviewsForHotels(context.Context, []*models.Hotel, int) map[string][]*models.HotelReview
+	FetchReviewsForLocation(context.Context, string, *gorm.DB) ([]*models.HotelReview, error)
 }
 
 // ReviewCrawlerService handles crawling reviews from multiple sources
@@ -35,10 +35,10 @@ func NewReviewCrawlerService(db *gorm.DB) *ReviewCrawlerService {
 }
 
 // CrawlAllSources crawls reviews from all available sources for a hotel
-func (s *ReviewCrawlerService) CrawlAllSources(ctx context.Context, hotel *models.Hotel) (int, error) {
-	sources := []ReviewSource{
-		NewTripAdvisorReviewsService(),
-		//NewGoogleCrawler(), //
+func (s *ReviewCrawlerService) CrawlReviews(ctx context.Context, hotel *models.Hotel) (int, error) {
+	services := map[string]ReviewSource{
+		models.SourceTripadvisor: NewTripAdvisorReviewsService(),
+		//models.SourceGoogle:      NewGoogleCrawler(),
 		//NewExpediaCrawler(),
 		//NewBookingCrawler(),
 		//NewHotelWebsiteCrawler(),
@@ -47,31 +47,28 @@ func (s *ReviewCrawlerService) CrawlAllSources(ctx context.Context, hotel *model
 	}
 
 	totalReviews := 0
-	for _, source := range sources {
-		reviews, err := source.FetchReviewsForLocation(ctx, hotel.SourceHotelID, 100)
-		if err != nil {
-			log.Printf("Error crawling %s reviews for hotel %s: %v", source.GetSourceName(), hotel.HotelID, err)
+	service := services[hotel.Source]
+	reviews, err := service.FetchReviewsForLocation(ctx, hotel.SourceHotelID, s.db)
+	if err != nil {
+		log.Printf("Error crawling %s reviews for hotel %s: %v", service.GetSourceName(), hotel.SourceHotelID, err)
+	}
+
+	for _, review := range reviews {
+		if err := s.SaveReview(ctx, review); err != nil {
+			log.Printf("Error saving review from %s: %v", service.GetSourceName(), err)
 			continue
 		}
-
-		for _, review := range reviews {
-			if err := s.SaveReview(ctx, review); err != nil {
-				log.Printf("Error saving review from %s: %v", source.GetSourceName(), err)
-				continue
-			}
-			totalReviews++
-		}
-
-		// Rate limiting between sources
-		time.Sleep(1 * time.Second)
+		totalReviews++
 	}
+
+	// Rate limiting between sources
+	time.Sleep(1 * time.Second)
 
 	return totalReviews, nil
 }
 
 // SaveReview saves a review to the database
 func (s *ReviewCrawlerService) SaveReview(ctx context.Context, review *models.HotelReview) error {
-	// FirstOrCreate: looks for existing record by review ID from TripAdvisor
 	err := s.db.WithContext(ctx).
 		Where("source_review_id = ? AND source = ?", review.SourceReviewID, review.Source).
 		FirstOrCreate(&review).Error
@@ -82,16 +79,6 @@ func (s *ReviewCrawlerService) SaveReview(ctx context.Context, review *models.Ho
 
 	return nil
 }
-
-//func (s *ReviewCrawlerService) SaveReview(ctx context.Context, review *models.HotelReview) error {
-//	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-//		Columns: []clause.Column{{Name: "hotel_id"}, {Name: "source"}, {Name: "source_review_id"}},
-//		DoUpdates: clause.AssignmentColumns([]string{
-//			"reviewer_name", "reviewer_location", "rating", "review_text",
-//			"review_date", "verified", "helpful_count", "room_type", "travel_type", "stay_date",
-//		}),
-//	}).Create(review).Error
-//}
 
 // GetReviewsForHotel retrieves all reviews for a hotel
 func (s *ReviewCrawlerService) GetReviewsForHotel(ctx context.Context, hotelID string) ([]*models.HotelReview, error) {
@@ -136,44 +123,43 @@ func main() {
 	ctx := context.Background()
 
 	// Get all hotels
-	hotels, err := db.GetAllHotels(ctx)
+	hotels, err := db.GetAllHotels(ctx, models.SourceTripadvisor) // "" for all hotels
 	if err != nil {
 		log.Fatalf("Failed to get hotels: %v", err)
 	}
+	log.Printf("Found %d hotels to fetch reviews for.", len(hotels))
 
-	// Filter to only Google-sourced hotels
-	//var googleHotels []*models.Hotel
-	//for _, hotel := range hotels {
-	//	if hotel.Source == models.HotelSourceGoogle {
-	//		googleHotels = append(googleHotels, hotel)
-	//	}
-	//}
-
-	var tripadvisorHotels []*models.Hotel
-	for _, hotel := range hotels {
-		if hotel.Source == models.HotelSourceTripadvisor {
-			tripadvisorHotels = append(tripadvisorHotels, hotel)
-		}
-	}
-	hotels = tripadvisorHotels
-
-	log.Printf("Found %d TripAdvisor-sourced hotels to fetch reviews for", len(hotels))
-
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 	totalReviewsCrawled := 0
-	for i, hotel := range hotels {
-		log.Printf("Fetching reviews for hotel %d/%d: %s (%s)", i+1, len(hotels), hotel.Name, hotel.HotelID)
+	const maxGo = 5
+	sem := make(chan struct{}, maxGo)
 
-		reviewsCount, err := crawler.CrawlAllSources(ctx, hotel)
-		if err != nil {
-			log.Printf("Error fetching reviews for hotel %s: %v", hotel.SourceHotelID, err)
-			continue
-		}
+	for _, hotel := range hotels {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(h *models.Hotel) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		totalReviewsCrawled += reviewsCount
-		log.Printf("Fetched %d reviews for hotel %s", reviewsCount, hotel.SourceHotelID)
+			log.Printf("Fetching reviews for %s (%s, %s)", h.Name, h.HotelID, h.Source)
+			reviewsCount, err := crawler.CrawlReviews(ctx, h)
+			if err != nil {
+				log.Printf("Error fetching %s reviews for hotel %s(%s): %v", h.Source, h.Name, h.SourceHotelID, err)
+				return
+			}
+			mu.Lock()
+			totalReviewsCrawled += reviewsCount
+			mu.Unlock()
+			log.Printf("Fetched %d reviews for hotel %s", reviewsCount, h.SourceHotelID)
 
+		}(hotel)
+
+		wg.Wait()
+
+		log.Printf("Fetched %d reviews so far for %s", totalReviewsCrawled, hotel.SourceHotelID)
 		// Rate limiting between hotels
-		time.Sleep(2 * time.Second)
+		time.Sleep(800 * time.Millisecond)
 	}
 
 	log.Printf("Review fetch completed. Total New Reviews: %d", totalReviewsCrawled)

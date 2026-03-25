@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/models"
@@ -93,16 +94,18 @@ func (p *tripAdvisorProvider) fetchHotels(ctx context.Context, location string) 
 		var lat, lng float64
 		fmt.Sscanf(result.Latitude, "%f", &lat)
 		fmt.Sscanf(result.Longitude, "%f", &lng)
+		log.Printf("Found hotel %v\n", result)
 
-		rating := result.Rating
-
+		location := strings.Split(location, ",")
+		city, country := location[0], location[1]
 		hotel := &models.Hotel{
 			HotelID:           fmt.Sprintf("ta_%s", result.LocationID),
 			Source:            models.HotelSourceTripadvisor,
 			SourceHotelID:     result.LocationID,
 			Name:              result.Name,
-			City:              result.AddressObj.City,
-			Country:           result.AddressObj.Country,
+			City:              city,
+			Country:           country,
+			TripAdvisorRating: result.Rating,
 			StreetAddress:     result.AddressObj.Street1,
 			PostalCode:        result.AddressObj.PostalCode,
 			StateCode:         "",
@@ -111,7 +114,6 @@ func (p *tripAdvisorProvider) fetchHotels(ctx context.Context, location string) 
 			Phone:             result.Phone,
 			Website:           result.Website,
 			Email:             result.Email,
-			TripadvisorRating: rating,
 			LastUpdate:        time.Now().Format(time.RFC3339),
 		}
 		hotels = append(hotels, hotel)

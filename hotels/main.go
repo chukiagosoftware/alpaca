@@ -13,8 +13,8 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// City represents a city with IATA code
-type City = models.AirportCity
+// We now use City from topCities instead
+// type City = models.AirportCity
 
 func main() {
 	_, currentFile, _, _ := runtime.Caller(0)
@@ -46,7 +46,7 @@ func main() {
 	totalMultiSource := 0
 
 	for _, city := range cities {
-		log.Printf("Processing city: %s (%s)", city.Name, city.IATACode)
+		log.Printf("Processing city: %s (%s)", city.Name, city.Country)
 
 		// Fetch from Amadeus
 		//hotelIDs, err := fetchHotelsForCity(ctx, db, city.IATACode)
@@ -84,23 +84,17 @@ func main() {
 
 }
 
-// getTargetCities retrieves cities from .env
-func getTargetCities(db *orm.DB) ([]models.AirportCity, error) {
-	//citiesStr := os.Getenv("HOTEL_CITIES")
-	//if citiesStr == "" {
-	//	citiesStr = "LON,AUS" // Default fallback
-	//}
-	//cityList := strings.Split(citiesStr, ",")
-	//for i, c := range cityList {
-	//	cityList[i] = strings.TrimSpace(c)
-	//}
+func getTargetCities(db *orm.DB) ([]models.City, error) {
 
-	var airportCities []models.AirportCity
-	//err := db.Where("iata_code IN ?", cityList).Find(&airportCities).Error
-	err := db.Find(&airportCities).Error
+	var cities []models.City
+	err := db.Table("cities"). // Start from cities table
+					Joins("LEFT JOIN hotels ON cities.name = hotels.city AND cities.country = hotels.country").
+					Where("hotels.id IS NULL"). // Only cities with no matching hotels
+					Find(&cities).Error
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Loaded %d cities\n", len(airportCities))
-	return airportCities, err
+	fmt.Printf("Loaded %d cities\n", len(cities))
+
+	return cities, err
 }
