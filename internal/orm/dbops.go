@@ -13,8 +13,11 @@ import (
 )
 
 // GetAllHotels retrieves all hotels from the database
-func (db *DB) GetAllHotels(ctx context.Context) ([]*models.Hotel, error) {
+func (db *DB) GetAllHotels(ctx context.Context, source string) ([]*models.Hotel, error) {
 	var hotels []*models.Hotel
+	if source != "" {
+		return hotels, db.DB.WithContext(ctx).Where("source = ? and hotel_id > 'ta_1161758'", source).Order("hotel_id").Find(&hotels).Error
+	}
 	return hotels, db.DB.WithContext(ctx).Order("hotel_id").Find(&hotels).Error
 }
 
