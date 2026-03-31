@@ -1,43 +1,41 @@
 # Alpaca - Hotel Review Search turbocharged with AI
 
-Find Hotel Reviews with fine-tuned AI powered search criteria. Comprehensive Go microservice suite to fetch, consolidate, and analyze hotel review data with RAG and LLM.
+Find your next hotel based on relevant and recent human reviews. Comprehensive Go microservice suite to fetch and consolidate review data with RAG and LLM for post-processing.
 
-Uses Google Vertex AI Vector Search for Retrieval Augmentd Generation RAG, and LLM-powered recommendation analysis.
+Serving with Go Gin HTTP server and built-in AI traces/metrics with OpenTelemetry.
+
+Performant backend uses Google Vertex AI Vector Search for Retrieval Augmented Generation (RAG), and Gemini LLM-powered recommendation analysis. Both are modular and will be tested against AWS Bedrock, S3 Vectors and open source vector databases (Qdrant).
 
 Architected, coded, designed, and deployed by ChukiagoSoftware. 
 
-Development enhanced by Grok, ChatGPT, and Claude for code generation, code analysis, and research assistance.
+Developed leveraging Grok and Claude for code generation, research assistance and improved by ChukiagoSoftware's own expertise.
 
-Kubernetes, Docker and GCP cloud native, with built-in metrics via OpenTelemetry.
+## System Overview
 
-## Architecture
+Alpaca is a Go microservice suite for LLMs and RAG with SQL and BigQuery, AWS Glue, S3, Bedrock and multiple other providers as modular options. 
 
-Alpaca is a Go microservice suite for LLMs and RAG with SQL and BigQuery data. 
+It **does** the following:
 
-It does the following:
-- Fetches hotel and review data from multiple sources
-- Consolidates data into a unified schema
-- Generates vector Embeddings using Gemini-003 or text-embedding-004 from Google
-- Implements Retrieval Augmented Generation - RAG -  with Google BigQuery and Vertex AI Vector Search
-- Implements Gemini LLM completion after a dimensional similarity search (supports GPT-4, Claude, Grok)
-- Generates intelligent recommendations for a user question based on configurable LLM review analysis
-- Stores development data in SQLite (default) leveraging GORM for maintainability
+### Features
+- Fetch consolidated hotel and review data from multiple public API including Google Places, Tripadvisor, Amadeus.
+- Generate vector Embeddings using Gemini-003 or text-embedding-004 from Google, or modular options including AWS Bedrock, S3 Vectors, or Python low-level PyTorch.
+- Implements Retrieval Augmented Generation with Google BigQuery and Vertex AI Vector Index Search.
+- Can easily be ported to AWS or Qdrant.
+- Implements LLM completion after a dimensional similarity search (Gemini, GPT-4, Claude, Grok via standard Go `net/http` or provider SDK.
+- Generates intelligent recommendations for a user question based on configurable LLM prompts and custom optimizations.
+
+
+### Software engineering
+- Store development data in SQLite (default) leveraging GORM for maintainability
 - Uses a generalized provider interface for easy API integration
-- Processes data in concurrent batches with rate limiting
+- Modular design with a performant backend ready to serve React/Vue/Angular or standard HTML/JS.
+- Process data in concurrent batches with rate limiting
+- Separate concerns for data fetching, processing, embedding, storage, and retrieval.
 - Scrape complex CDN websites for hotel reviews using AppleScript, Go Colly.
+- Leverage available provider APIs for data collection and analysis.
 
+### Infrastructure
+- Deployed on Google Cloud using Pulumi Go
+- Optimized two-stage Docker build for production with lightweight images.
+- Runs native on Cloud Run, Kubernetes, or other services using standard Docker image and registry.
 
-
-### ✅ Multi-Source Hotel Data Collection
-- **Amadeus API**: Curated worldwide hotel list, guest sentiments and ratings
-- **Expedia**: Hotel listings and user reviews (interface ready)
-- **Tripadvisor**: Hotel data and user reviews (interface ready)
-- **Google Places**: Hotel data and user reviews 
-- **Booking.com**: Hotel data and reviews (interface ready)
-- **Consolidated Schema**: Unified hotel table with ratings from all sources
-
-### Modular design can support multiple data sources, providers, LLMs, Vector Database/Search services
-
-### Go Gin HTTP server, Alpine Docker image build optimized for rapid cloud deployment
-
-### Integrated OpenTelemetry tracing for LLM and RAG operations

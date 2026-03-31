@@ -10,9 +10,10 @@ type AirportCity struct {
 }
 
 type City struct {
-	id      int    `gorm:"primaryKey" bigquery:"id"`
-	Name    string `gorm:"not null" bigquery:"name"`
-	Country string `gorm:"not null" bigquery:"country"`
+	id        int    `gorm:"primaryKey" bigquery:"id"`
+	Name      string `gorm:"not null" bigquery:"name"`
+	Country   string `gorm:"not null" bigquery:"country"`
+	Continent string `gorm:"" bigquery:"continent"` // logic is not yet implemented to set this value or use it
 }
 
 type Country struct {
