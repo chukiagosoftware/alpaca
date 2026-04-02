@@ -1,9 +1,13 @@
+.DS_Store
+**/.DS_Store
+
 *.db
 main
 .env
 .env.local
 .env.*.local
 hotelReviewsSaved/
+hotelReviewSaved/
 *.yaml
 go.sum
 go.mod

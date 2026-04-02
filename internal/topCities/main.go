@@ -36,6 +36,11 @@ func readTopCities(db *gorm.DB) error {
 			}
 		}(file)
 
+		continent, found := strings.CutSuffix(info.Name(), "Cities.txt")
+		if !found {
+			continent = "notdetected"
+		}
+
 		scanner := bufio.NewScanner(file)
 		scanner.Split(bufio.ScanLines) // Split by lines is default
 		for scanner.Scan() {
@@ -44,7 +49,7 @@ func readTopCities(db *gorm.DB) error {
 				log.Printf("Invalid row: %s", scanner.Text())
 				continue
 			}
-			cities = append(cities, models.City{Name: row[0], Country: row[1]})
+			cities = append(cities, models.City{Name: row[0], Country: row[1], Continent: continent})
 			// log.Printf("Found city: %s, %s", row[0], row[1])
 		}
 		return nil
