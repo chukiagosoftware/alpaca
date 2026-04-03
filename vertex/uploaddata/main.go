@@ -41,7 +41,9 @@ func main() {
 
 	// first bigtables
 	bigTables := map[string]interface{}{
-		"bigHotels": models.Hotel{},
+		//"bigReviews": models.HotelReviews{},
+		//"bigHotels": models.Hotel{},
+		"bigCity": models.City{},
 	}
 
 	for name, infer := range bigTables {
@@ -93,16 +95,21 @@ func main() {
 	//
 	//log.Printf("Uploaded %d reviews", len(reviews))
 
-	var hotels []models.Hotel
-	if err := db.Find(&hotels).Error; err != nil {
-		log.Fatalf("Failed to fetch reviews: %v", err)
+	//var hotels []models.Hotel
+	//if err := db.Find(&hotels).Error; err != nil {
+	//	log.Fatalf("Failed to fetch reviews: %v", err)
+	//}
+
+	var cities []models.City
+	if err := db.Find(&cities).Error; err != nil {
+		log.Fatalf("Failed to fetch cities: %v", err)
 	}
 
-	if err := vertex.UploadBatches(ctx, s, "bigHotels", hotels); err != nil {
+	if err := vertex.UploadBatches(ctx, s, "bigCity", cities); err != nil {
 		log.Printf("upload failed: %w", err)
 	}
 
-	log.Printf("Uploaded %d reviews", len(hotels))
+	log.Printf("Uploaded %d cities", len(cities))
 
 	// ToDo complete the batchupload.go
 	//gcsClient, err := storage.NewClient(ctx)

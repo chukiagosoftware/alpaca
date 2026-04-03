@@ -1,0 +1,51 @@
+{
+  "name": "projects/golang1212025/locations/us-central1/indexes/5292532205648609280",
+  "isCompleteOverwrite": true,
+  "config": {
+    "bigQuerySourceConfig": {
+      "tablePath": "bq://golang1212025.alpacaCentral.bigReview_embeddings",
+      "datapointFieldMapping": {
+        "idColumn": "id",
+        "embeddingColumn": "ml_generate_embedding_result",
+        "numericRestricts": [
+          {
+            "namespace": "rating",
+            "valueColumn": "rating",
+            "valueType": "FLOAT"
+          }
+        ],
+        "restricts": [
+          {
+            "namespace": "hotel_name",
+            "allowColumn": ["hotel_name"]
+          },
+          {
+            "namespace": "city",
+            "allowColumn": ["city"]
+          },
+          {
+            "namespace": "country",
+            "allowColumn": ["country"]
+          },
+          {
+            "namespace": "continent",
+            "allowColumn": ["continent"]
+          }
+        ],
+        "metadataColumns": [
+          "review_text",
+          "hotel_name",
+          "city",
+          "country",
+          "continent",
+          "reviewer_name",
+          "rating",
+          "google_maps_uri",
+          "photo_name",
+          "review_date",
+          "reviewer_name"
+        ]
+      }
+    }
+  }
+}
