@@ -34,10 +34,15 @@ func main() {
 		log.Fatalf("Failed to create service: %v", err)
 	}
 
+	// legacy first upload
+	//bigTables := map[string]interface{}{
+	//	"cities":  models.AirportCity{},
+	//	"hotels":  models.Hotel{},
+
+	// first bigtables
 	bigTables := map[string]interface{}{
-		"cities":  models.AirportCity{},
-		"hotels":  models.Hotel{},
-		"reviews": models.HotelReview{}}
+		"bigHotels": models.Hotel{},
+	}
 
 	for name, infer := range bigTables {
 		if err := s.CreateBigQueryTable(ctx, infer, name); err != nil {
@@ -70,15 +75,42 @@ func main() {
 	//	log.Fatalf("Failed to upload hotels: %v", err)
 	//}
 	//log.Printf("Uploaded %d hotels", len(hotels))
+	//
+	// Old small batch
+	//if err := vertex.UploadData(ctx, s, "reviews", reviews); err != nil {
+	//	log.Fatalf("Failed to upload reviews: %v", err)
+	//}
 
-	// Fetch and upload reviews
-	var reviews []models.HotelReview
-	if err := db.Find(&reviews).Error; err != nil {
+	//// Fetch and upload reviews
+	//var reviews []models.HotelReview
+	//if err := db.Find(&reviews).Error; err != nil {
+	//	log.Fatalf("Failed to fetch reviews: %v", err)
+	//}
+	//
+	//if err := vertex.UploadBatches(ctx, s, "bigReviews", reviews); err != nil {
+	//	log.Printf("upload failed: %w", err)
+	//}
+	//
+	//log.Printf("Uploaded %d reviews", len(reviews))
+
+	var hotels []models.Hotel
+	if err := db.Find(&hotels).Error; err != nil {
 		log.Fatalf("Failed to fetch reviews: %v", err)
 	}
-	if err := vertex.UploadData(ctx, s, "reviews", reviews); err != nil {
-		log.Fatalf("Failed to upload reviews: %v", err)
+
+	if err := vertex.UploadBatches(ctx, s, "bigHotels", hotels); err != nil {
+		log.Printf("upload failed: %w", err)
 	}
-	log.Printf("Uploaded %d reviews", len(reviews))
+
+	log.Printf("Uploaded %d reviews", len(hotels))
+
+	// ToDo complete the batchupload.go
+	//gcsClient, err := storage.NewClient(ctx)
+	//if err != nil { log.Fatal(err) }
+	//defer gcsClient.Close()
+	//
+	//if err := UploadLoadBatches(ctx, s, gcsClient, "your-gcs-bucket", "bigReviews", reviews); err != nil {
+	//	log.Fatal(err)
+	//}
 
 }

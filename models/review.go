@@ -24,4 +24,5 @@ type HotelReview struct {
 	UpdatedAt        time.Time `json:"updatedAt" bigquery:"updated_at"`
 	GoogleMapsURI    string    `gorm:"column:google_maps_uri" json:"googleMapsURI" bigquery:"google_maps_uri"`
 	Photo            string    `gorm:"column:photo_name" json:"photo_name" bigquery:"photo_name"`
+	InsertID         string    `gorm:"column:insert_id" json:"insertId" bigquery:"insert_id"` // BigQuery auto deduplication
 }

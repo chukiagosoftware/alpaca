@@ -6,6 +6,8 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/chukiagosoftware/alpaca/models"
@@ -54,7 +56,83 @@ func (s *BQ) CreateBigQueryTable(ctx context.Context, inferStruct interface{}, t
 	return err
 }
 
-// UploadData uploads data to BigQuery in batches
+func UploadBatches[T any](ctx context.Context, s *BQ, tableName string, data []T) error {
+	if len(data) == 0 {
+		log.Println("⚠️ Empty data, skipping")
+		return nil
+	}
+
+	table := s.BQClient.Dataset(s.DatasetID).Table(tableName)
+
+	const batchSize = 5000 // 👈 Safer for big reviews (tune up if JSON est. <8MB)
+	const numWorkers = 5
+
+	batchChan := make(chan []T, numWorkers*2)
+	errChan := make(chan error, numWorkers) // Buffered, no close needed
+	var wg sync.WaitGroup
+
+	// Workers: NO defer close(errChan)!
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inserter := table.Inserter()
+			for batch := range batchChan {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				// Worker loop:
+				log.Printf("🔄 Worker starting batch %d rows", len(batch))
+				start := time.Now()
+				if err := inserter.Put(ctx, batch); err != nil {
+					log.Printf("❌ Put failed (%v): %v", time.Since(start), err)
+					errChan <- err
+					return
+				}
+				log.Printf("✅ Put success %d rows in %v", len(batch), time.Since(start))
+			}
+		}()
+	}
+
+	// Producer
+	totalBatches := (len(data) + batchSize - 1) / batchSize
+
+	for i := 0; i < len(data); i += batchSize {
+		select {
+		case <-ctx.Done():
+			close(batchChan)
+			wg.Wait()
+			return ctx.Err()
+		default:
+		}
+		end := i + batchSize
+		if end > len(data) {
+			end = len(data)
+		}
+		batchChan <- data[i:end]
+
+		if i/batchSize%5 == 0 {
+			log.Printf("📤 %s: batch %d/%d (~%d rows)", tableName, i/batchSize+1, totalBatches, len(data))
+		}
+	}
+	close(batchChan)
+
+	wg.Wait()
+
+	// Drain first err (safe, no panic)
+	select {
+	case err := <-errChan:
+		return err
+	default:
+		// Check for more? Optional buffered drain
+	}
+	log.Printf("✅ %s: %d rows / %d batches", tableName, len(data), totalBatches)
+	return nil
+}
+
+// Old UploadData uploads data to BigQuery in small batches
 func UploadData[T any](ctx context.Context, s *BQ, tableName string, data []T) error {
 	if len(data) == 0 {
 		return nil

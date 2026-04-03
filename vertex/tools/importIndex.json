@@ -3,7 +3,7 @@
   "isCompleteOverwrite": true,
   "config": {
     "bigQuerySourceConfig": {
-      "tablePath": "bq://golang1212025.alpacaCentral.review_embeddings",
+      "tablePath": "bq://golang1212025.alpacaCentral.bigReview_embeddings",
       "datapointFieldMapping": {
         "idColumn": "id",
         "embeddingColumn": "embedding",
