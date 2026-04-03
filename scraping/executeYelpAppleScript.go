@@ -35,7 +35,7 @@ func main() {
 	log.Printf("Found %d hotels for Yelp processing", len(hotels))
 
 	for i, hotel := range hotels {
-		if i < 6 {
+		if i < 24 {
 			continue
 			log.Printf("Skipping %s", hotel.Name)
 		}
@@ -51,7 +51,7 @@ func main() {
 		cmd := exec.Command("osascript", "scraping/yelp_applescript.scpt",
 			hotel.Name, hotel.City, hotel.Country, hotel.HotelID, searchPath)
 		cmd.Run()
-		time.Sleep(6 * time.Second)
+		time.Sleep(4 * time.Second)
 
 		// Extract first hotel URL from search page
 		hotelURL, err := extractFirstYelpBizLink(searchPath)
@@ -65,10 +65,10 @@ func main() {
 		cmd2 := exec.Command("osascript", "scraping/yelp_applescript.scpt",
 			hotel.Name, hotel.City, hotel.Country, hotel.HotelID, hotelPagePath, hotelURL)
 		cmd2.Run()
-		time.Sleep(6 * time.Second)
+		time.Sleep(4 * time.Second)
 
 		log.Printf("Saved hotel page: %s", hotelPagePath)
-		time.Sleep(2 * time.Second) // Be nice to Yelp
+		time.Sleep(5 * time.Second) // Be nice to Yelp
 	}
 }
 

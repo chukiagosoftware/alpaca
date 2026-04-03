@@ -15,26 +15,37 @@ on run argv
     set targetURL to item 6 of argv
   end if
 
+  set pageType to "unknown"
+  set pageSource to ""
+
   tell application "Safari"
     activate
 
-    if targetURL is not "" and targetURL begins with "http" then
-    -- Stage 2: Open specific hotel page
-      make new document with properties {URL:targetURL}
-      set pageType to "hotel"
-      delay 4
-    else
-    -- Stage 1: Perform search
-      set searchURL to "https://www.yelp.com/search?find_desc=" & hotelName & "&find_loc=" & city & "," & country
-      make new document with properties {URL:searchURL}
-      set pageType to "search"
-      delay 4
+    if (count of windows) is 0 then
+      make new window
     end if
 
-    set theDoc to document 1
-    delay 4
+    set frontWin to front window
+    set currentTab to current tab of frontWin
 
-    set pageSource to do JavaScript "document.documentElement.outerHTML" in theDoc
+    if targetURL is not "" and targetURL begins with "http" then
+      set URL of currentTab to targetURL
+      set pageType to "hotel"
+    else
+      set searchURL to "https://www.yelp.com/search?find_desc=" & hotelName & "&find_loc=" & city & "," & country
+      set URL of currentTab to searchURL
+      set pageType to "search"
+    end if
+
+    delay 5
+
+    set pageSource to do JavaScript "document.documentElement.outerHTML" in currentTab
+
+    tell frontWin
+      if (count of tabs) > 1 then
+        close (tabs 2 thru -1)
+      end if
+    end tell
   end tell
 
   try
