@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,16 +12,53 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSearchService) {
-	tracer := otel.Tracer("vertex-search")
+func LocationSelectHandler(c *gin.Context, config *vertex.Config, bq *vertex.BQ) {
 
-	// Extract form data
+	var locations []vertex.LocationGroup
+
+	locations, err := bq.GetDistinctLocations(c)
+
+	if err != nil {
+		log.Printf("error: Failed to get locations: " + err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get locations: " + err.Error()})
+	}
+
+	c.JSON(http.StatusOK, locations)
+}
+
+func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSearchService) {
+
+	tracer := otel.Tracer("vertex-search")
 	question := strings.TrimSpace(c.PostForm("question"))
 	if question == "" {
-		question = config.Query // Default from config
+		question = config.Query
 	}
-	city := strings.TrimSpace(c.PostForm("city"))
-	log.Printf("City: %s \n", city)
+	continent := strings.TrimSpace(c.PostForm("continent"))
+	cityCountry := strings.TrimSpace(c.PostForm("citycountry"))
+	rating, err := strconv.Atoi(strings.TrimSpace(c.PostForm("rating")))
+	log.Printf("Continent: %s, CityCountry: %s, Rating: %d \n", continent, cityCountry, rating)
+	if err != nil {
+		rating = 0
+	}
+
+	var searchParams vertex.SearchInput
+
+	if continent != "All Regions" {
+		searchParams.Continent = continent
+	}
+
+	if rating != 0 {
+		searchParams.Rating = rating
+		searchParams.FilterRating = true
+	}
+
+	if cityCountry != "All Cities" {
+		searchParams.City = strings.Split(cityCountry, ",")[0]
+		searchParams.Country = strings.Split(cityCountry, ",")[1]
+		searchParams.FilterCityCountry = true
+	}
+
+	log.Printf("SearchParams: %v \n", searchParams)
 
 	// Overall span for the request
 	ctx, span := tracer.Start(c.Request.Context(), "search-request")
@@ -58,7 +96,7 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 		}
 		_, searchSpan := tracer.Start(ctx, "vector-search")
 		start := time.Now()
-		results, err := vsSvc.VertexSearchEndpoint(ctx, *config, embedding, city)
+		results, err := vsSvc.VertexSearchEndpoint(ctx, *config, embedding, searchParams)
 		searchTime = time.Since(start)
 		searchSpan.End()
 		if err != nil {
@@ -100,7 +138,6 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 			"llm_completion_ms": completionTime.Milliseconds(),
 		},
 	})
-
 }
 
 func Pong(c *gin.Context) {

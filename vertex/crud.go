@@ -22,15 +22,15 @@ type BQ struct {
 }
 
 // NewBigQueryService creates a new service
-func NewBigQueryService(ctx context.Context, projectID, datasetID string) (*BQ, error) {
-	bqClient, err := bigquery.NewClient(ctx, projectID)
+func NewBigQueryService(ctx context.Context, config Config) (*BQ, error) {
+	bqClient, err := bigquery.NewClient(ctx, config.ProjectID)
 	if err != nil {
 		return nil, err
 	}
 	return &BQ{
 		BQClient:  bqClient,
-		ProjectID: projectID,
-		DatasetID: datasetID,
+		ProjectID: config.ProjectID,
+		DatasetID: config.DatasetID,
 	}, nil
 }
 
@@ -155,68 +155,11 @@ func UploadData[T any](ctx context.Context, s *BQ, tableName string, data []T) e
 	return nil
 }
 
-// TransformData transforms the data into Star schema
-func (s *BQ) TransformData(ctx context.Context) error {
-	// Fetch data from tables
-	cities, err := s.fetchCities(ctx)
-	if err != nil {
-		return err
-	}
-	hotels, err := s.fetchHotels(ctx)
-	if err != nil {
-		return err
-	}
-	reviews, err := s.fetchReviews(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Build maps
-	cityMap := make(map[string]models.AirportCity)
-	for _, c := range cities {
-		cityMap[c.IATACode] = c
-	}
-
-	hotelMap := make(map[string]models.Hotel)
-	for _, h := range hotels {
-		hotelMap[h.HotelID] = h
-	}
-
-	reviewMap := make(map[string][]models.HotelReview)
-	for _, r := range reviews {
-		reviewMap[r.HotelID] = append(reviewMap[r.HotelID], r)
-	}
-
-	// Enrich
-	var starHotels []StarHotel
-	for _, h := range hotels {
-		city, ok := cityMap[h.IATACode]
-		if !ok {
-			continue
-		}
-
-		star := StarHotel{
-			City:               city.Name,
-			NearestAirportCode: city.IATACode,
-			Latitude:           h.Latitude,
-			Longitude:          h.Longitude,
-			HotelName:          h.Name,
-			Address:            h.StreetAddress,
-			GoogleRating:       h.GoogleRating,
-			AdminOverride:      "",
-		}
-		starHotels = append(starHotels, star)
-	}
-
-	// Insert to star_hotels table
-	table := s.BQClient.Dataset(s.DatasetID).Table("star_hotels")
-	uploader := table.Uploader()
-	return uploader.Put(ctx, starHotels)
-}
-
-// Fetch functions
-func (s *BQ) fetchCities(ctx context.Context) ([]models.AirportCity, error) {
-	q := s.BQClient.Query("SELECT * FROM `" + s.DatasetID + ".cities`")
+// Fetch functions for deprecatd AirportCity
+func (bq *BQ) fetchCities(ctx context.Context) ([]models.AirportCity, error) {
+	tableString := fmt.Sprintf("%s.%s.%s", bq.ProjectID, bq.DatasetID, "airportCity")
+	query := "SELECT * FROM" + " " + tableString
+	q := bq.BQClient.Query(query)
 	it, err := q.Read(ctx)
 	if err != nil {
 		return nil, err
@@ -237,7 +180,9 @@ func (s *BQ) fetchCities(ctx context.Context) ([]models.AirportCity, error) {
 }
 
 func (s *BQ) fetchHotels(ctx context.Context) ([]models.Hotel, error) {
-	q := s.BQClient.Query("SELECT * FROM `" + s.DatasetID + ".hotels`")
+	tableString := fmt.Sprintf("%s.%s.%s", s.ProjectID, s.DatasetID, "hotels")
+	query := "SELECT * FROM" + " " + tableString
+	q := s.BQClient.Query(query)
 	it, err := q.Read(ctx)
 	if err != nil {
 		return nil, err
@@ -257,8 +202,10 @@ func (s *BQ) fetchHotels(ctx context.Context) ([]models.Hotel, error) {
 	return hotels, nil
 }
 
-func (s *BQ) fetchReviews(ctx context.Context) ([]models.HotelReview, error) {
-	q := s.BQClient.Query("SELECT * FROM `" + s.DatasetID + ".reviews`")
+func (bq *BQ) fetchReviews(ctx context.Context) ([]models.HotelReview, error) {
+	tableString := fmt.Sprintf("%s.%s.%s", bq.ProjectID, bq.DatasetID, "reviews")
+	queryString := "SELECT * FROM" + " " + tableString
+	q := bq.BQClient.Query(queryString)
 	it, err := q.Read(ctx)
 	if err != nil {
 		return nil, err
@@ -278,46 +225,27 @@ func (s *BQ) fetchReviews(ctx context.Context) ([]models.HotelReview, error) {
 	return reviews, nil
 }
 
-// Todo: implement batch proces with Github Actions Python pipeline
-// AddVectorColumnToHotelReviews adds an embedding column to hotel_reviews table
-func (s *BQ) AddVectorColumnToHotelReviews(ctx context.Context) error {
-	query := fmt.Sprintf("ALTER TABLE `%s.%s.hotel_reviews` ADD COLUMN IF NOT EXISTS embedding ARRAY<FLOAT64>",
-		s.ProjectID, s.DatasetID)
-	q := s.BQClient.Query(query)
-	job, err := q.Run(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to run ALTER TABLE: %w", err)
-	}
-	status, err := job.Wait(ctx)
-	if err != nil {
-		return fmt.Errorf("job failed: %w", err)
-	}
-	if status.Err() != nil {
-		return fmt.Errorf("job error: %w", status.Err())
-	}
-	return nil
-}
-
 // fetchReviewByID fetches a hotel review by its ID from BigQuery
-func (s *BQ) fetchReviewByID(ctx context.Context, idStr string) (*models.HotelReview, error) {
+func (bq *BQ) fetchReviewByID(ctx context.Context, idStr string) (*models.HotelReview, error) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid ID: %w", err)
 	}
 
-	query := fmt.Sprintf("SELECT * FROM `%s.%s.hotel_reviews` WHERE id = @id", s.ProjectID, s.DatasetID)
-	q := s.BQClient.Query(query)
-	q.Parameters = []bigquery.QueryParameter{
+	tableString := fmt.Sprintf("%s.%s.%s", bq.ProjectID, bq.DatasetID, "reviews")
+
+	query := "SELECT * FROM" + " " + tableString + " WHERE id = @id"
+	params := []bigquery.QueryParameter{
 		{Name: "id", Value: id},
 	}
 
-	it, err := q.Read(ctx)
+	iter, err := bq.ExecuteQuery(ctx, query, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to run query: %w", err)
+		return nil, fmt.Errorf("failed to build query: %w", err)
 	}
 
 	var review models.HotelReview
-	err = it.Next(&review)
+	err = iter.Next(&review)
 	if err == iterator.Done {
 		return nil, fmt.Errorf("review not found")
 	}
@@ -328,56 +256,72 @@ func (s *BQ) fetchReviewByID(ctx context.Context, idStr string) (*models.HotelRe
 	return &review, nil
 }
 
-// GenerateEmbeddingsForHotelReviews generates embeddings for hotel_reviews, with a flag to force rerun
-// Todo: moving this to Python Github Actions due to Go library inconsistency
-func (s *BQ) GenerateEmbeddingsForHotelReviews(ctx context.Context, force bool) error {
-	var condition string
-	if !force {
-		condition = " WHERE embedding IS NULL"
-	}
-	query := fmt.Sprintf("UPDATE `%s.%s.hotel_reviews` r SET embedding = ML.GENERATE_EMBEDDING(MODEL `cloud-ai-ml.textembedding-gecko`, r.review_text)%s",
-		s.ProjectID, s.DatasetID, condition)
-	q := s.BQClient.Query(query)
-	job, err := q.Run(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to run UPDATE: %w", err)
-	}
-	status, err := job.Wait(ctx)
-	if err != nil {
-		return fmt.Errorf("job failed: %w", err)
-	}
-	if status.Err() != nil {
-		return fmt.Errorf("job error: %w", status.Err())
-	}
-	log.Println("Embeddings generated/updated for hotel_reviews")
-	return nil
-}
+// ExecuteQuery usage: it, err := s.ExecuteQuery(ctx, sql, params); then it.Next(&row)
+func (bq *BQ) ExecuteQuery(ctx context.Context, query string, params []bigquery.QueryParameter) (*bigquery.RowIterator, error) {
+	q := bq.BQClient.Query(query)
+	q.Parameters = params
 
-// Todo: keeping for reference since we will use Vertex AI Vector Search and/or RAG Engine directly
-// SearchSimilarReviewsBQ searches for similar reviews using BigQuery vector search
-func (s *BQ) SearchSimilarReviewsBQ(ctx context.Context, queryEmbedding []float64, limit int) ([]models.HotelReview, error) {
-	query := fmt.Sprintf("SELECT * FROM `%s.%s.hotel_reviews` WHERE embedding IS NOT NULL ORDER BY COSINE_DISTANCE(embedding, @query_embedding) LIMIT @limit",
-		s.ProjectID, s.DatasetID)
-	q := s.BQClient.Query(query)
-	q.Parameters = []bigquery.QueryParameter{
-		{Name: "query_embedding", Value: queryEmbedding},
-		{Name: "limit", Value: limit},
-	}
 	it, err := q.Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run query: %w", err)
 	}
-	var reviews []models.HotelReview
+	return it, nil
+}
+
+// GetDistinctLocations returns sorted distinct continents/countries/cities from bigReviews_embeddings.
+func (bq *BQ) GetDistinctLocations(ctx context.Context) ([]LocationGroup, error) {
+	richEmbeddedReviews := fmt.Sprintf("%s.%s.bigReview_embeddings", bq.ProjectID, bq.DatasetID)
+
+	// cannot use alias defined in select in the where clause but can define it for output labelling
+	sql := fmt.Sprintf(`
+			SELECT continent,
+    				ARRAY_AGG(DISTINCT CONCAT(city, ', ', country) ORDER BY CONCAT(city, ', ', country)) as city_countries
+			FROM %s
+			WHERE continent IS NOT NULL 
+			  AND continent != ''
+			  AND city IS NOT NULL 
+			  AND city != ''
+			  AND country IS NOT NULL 
+			  AND country != ''
+			GROUP BY continent
+			ORDER BY continent`,
+		richEmbeddedReviews)
+
+	params := []bigquery.QueryParameter{
+		//{
+		//	Name: "continents",
+		//	Value: []string{
+		//		"USA",
+		//		"mexico",
+		//		"canada",
+		//		"caribbean",
+		//		"centralAmerica",
+		//		"southamerica",
+		//		"oceania",
+		//		"europe",
+		//		"asia",
+		//		"africa",
+		//	},
+		//},
+	}
+
+	it, err := bq.ExecuteQuery(ctx, sql, params)
+	if err != nil {
+		return nil, err
+	}
+	//defer it.Close()
+
+	var groups []LocationGroup
 	for {
-		var review models.HotelReview
-		err := it.Next(&review)
+		var g LocationGroup
+		err := it.Next(&g)
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to read row: %w", err)
+			return nil, fmt.Errorf("failed to read group: %w", err)
 		}
-		reviews = append(reviews, review)
+		groups = append(groups, g)
 	}
-	return reviews, nil
+	return groups, nil
 }

@@ -55,41 +55,61 @@
 <body>
 <div class="top-section">
     <div class="left-column">
-        <h2>Search Hotels</h2>
+        <h2>Find your Hotel</h2>
         <form id="searchForm">
-            <label for="question">Question:</label>
-            <input type="text" name="question" id="question" placeholder="Ask a question" value="Find a quiet hotel...">
-
-            <label for="city">City:</label>
-            <select name="city" id="city">
-                <option value="">All Cities</option>
-                <option value="Austin">Austin</option>
-                <option value="Aurora">Aurora</option>
-                <option value="Bangkok">Bangkok</option>
-                <option value="Brighton">Brighton</option>
-                <option value="Buda">Buda</option>
-                <option value="Cedar Park">Cedar Park</option>
-                <option value="Coral Gables">Coral Gables</option>
-                <option value="Denver">Denver</option>
-                <option value="Englewood">Englewood</option>
-                <option value="Glendale">Glendale</option>
-                <option value="Helsinki">Helsinki</option>
-                <option value="Hollywood">Hollywood</option>
-                <option value="Lakewood">Lakewood</option>
-                <option value="London">London</option>
-                <option value="Madrid">Madrid</option>
-                <option value="Miami Beach">Miami Beach</option>
-                <option value="Miami">Miami</option>
-                <option value="Round Rock">Round Rock</option>
-                <option value="Sao Paulo">Sao Paulo</option>
-                <option value="South Miami">South Miami</option>
-                <option value="Sydney">Sydney</option>
-                <option value="Warsaw">Warsaw</option>
-                <option value="Westminster">Westminster</option>
-                <!-- Add more cities as needed -->
+            <select id="continent"><option value="All Regions">All Regions</option></select>
+            <select id="citycountry"><option value="All Cities">All Cities</option></select>
+            <select id="rating">
+                <option value=" ">Any Rating</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
             </select>
+            <input id="query" placeholder="My happy place">
+            <button>Search</button>
+            <script>
+                let locationGroups = [];
 
-            <button type="submit">Search</button>
+                fetch('/api/locations')
+                    .then(r => {
+                        if (!r.ok) throw new Error(`HTTP error ${r.status}: ${r.statusText}`);
+                        return r.json()
+                    })
+                    .then(groups => {
+                        locationGroups = groups;
+                        if (locationGroups.length === 0) {
+                            throw new Error('Locations API returned no data');
+                        }
+                        populateContinents();
+                    })
+                    .catch(err => {
+                        console.error('Failed to load locations (using defaults):', err);
+                    });
+
+                function populateContinents() {
+                    const sel = document.getElementById('continent');
+                    sel.innerHTML = '<option value="All Regions">All Regions</option>';
+                    locationGroups.forEach(g => {
+                        sel.appendChild(new Option(g.continent, g.continent));
+                    });
+                }
+
+                document.getElementById('continent').addEventListener('change', (e) => {
+                    const cityCountrySel = document.getElementById('citycountry');
+                    cityCountrySel.innerHTML = '<option value="All Cities">All Cities</option>';
+                    if (!e.target.value) return;
+
+                    const group = locationGroups.find(g => g.continent === e.target.value);
+                    if (group) {
+                        group.city_countries.forEach(cc => {
+                            cityCountrySel.appendChild(new Option(cc, cc));
+                        });
+                    }
+                });
+
+            </script>
         </form>
     </div>
     <div class="right-column">

@@ -39,3 +39,7 @@ type LLMRequest struct {
 type LLMResponse struct {
 	Answer string `json:"answer"`
 }
+type LocationGroup struct {
+	Continent     string   `json:"continent" bigquery:"continent"`
+	CityCountries []string `json:"city_countries" bigquery:"city_countries"`
+}

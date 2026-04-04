@@ -3,33 +3,29 @@ package main
 import (
 	"context"
 	"log"
-	"os"
-	"path/filepath"
-	"runtime"
 
 	"github.com/chukiagosoftware/alpaca/internal/orm"
 	"github.com/chukiagosoftware/alpaca/models"
 	"github.com/chukiagosoftware/alpaca/vertex"
-	"github.com/joho/godotenv"
 )
 
 func main() {
 
-	_, currentFile, _, _ := runtime.Caller(0)
-	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(currentFile)))
-	envPath := filepath.Join(projectRoot, ".env")
-
-	if err := godotenv.Load(envPath); err != nil {
-		log.Printf("Warning: Could not load .env file: %v", err)
+	config, err := vertex.LoadConfig()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	projectID := os.Getenv("GCP_PROJECT_ID")
-	datasetID := os.Getenv("BQ_DATASET_ID")
-	if projectID == "" || datasetID == "" {
-		log.Fatal("GCP_PROJECT_ID and BQ_DATASET_ID must be set")
-	}
+	log.Printf("Loaded config: ProjectID=%s\n, Location=%s\n, DatasetID=%s\n, IndexID=%s\n, EndpointID=%s\n, Domain=%s\n",
+		config.ProjectID,
+		config.Location,
+		config.DatasetID,
+		config.IndexID,
+		config.EndpointID,
+		config.EndpointPublicDomainName)
+
 	ctx := context.Background()
-	s, err := vertex.NewBigQueryService(ctx, projectID, datasetID)
+	s, err := vertex.NewBigQueryService(ctx, *config)
 	if err != nil {
 		log.Fatalf("Failed to create service: %v", err)
 	}

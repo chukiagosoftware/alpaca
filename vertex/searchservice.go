@@ -14,6 +14,15 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+type SearchInput struct {
+	FilterCityCountry bool
+	FilterRating      bool
+	Rating            int
+	Continent         string
+	City              string
+	Country           string
+}
+
 type Config struct {
 	ProjectID                    string `mapstructure:"project_id"`
 	Location                     string `mapstructure:"location"`
@@ -143,7 +152,7 @@ func (s *VertexSearchService) GenerateEmbedding(ctx context.Context, question st
 }
 
 // VertexSearchEndpoint performs similarity search against a deployed IndexEndpoint.
-func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, city string) ([]map[string]any, error) {
+func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, params SearchInput) ([]map[string]any, error) {
 
 	// The IndexEndpoint path format is 'projects/{project_id}/locations/{location}/indexEndpoints/{index_endpoint_id}'
 	endpointPath := fmt.Sprintf("projects/%s/locations/%s/indexEndpoints/%s", s.projectID, s.location, config.EndpointID)
@@ -153,15 +162,47 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 		featureVector[i] = float64(v)
 	}
 
+	city := params.City
+	country := params.Country
+	continent := params.Continent
+	rating := int64(params.Rating)
+
 	var restrictsParams []*aiplatformpb.IndexDatapoint_Restriction
+
+	var numericRestrictsParams []*aiplatformpb.IndexDatapoint_NumericRestriction
+
+	restrictsRating := &aiplatformpb.IndexDatapoint_NumericRestriction{
+		Namespace: "rating",
+		Value:     &aiplatformpb.IndexDatapoint_NumericRestriction_ValueInt{ValueInt: rating},
+		Op:        aiplatformpb.IndexDatapoint_NumericRestriction_GREATER_EQUAL,
+	}
+
+	if params.FilterRating {
+		numericRestrictsParams = append(numericRestrictsParams, restrictsRating)
+	}
 
 	restrictsCity := &aiplatformpb.IndexDatapoint_Restriction{
 		Namespace: "city",
 		AllowList: []string{city},
 	}
 
-	if city != "" && city != "All Cities" {
+	restrictsCountry := &aiplatformpb.IndexDatapoint_Restriction{
+		Namespace: "country",
+		AllowList: []string{country},
+	}
+
+	restrictsContinent := &aiplatformpb.IndexDatapoint_Restriction{
+		Namespace: "continent",
+		AllowList: []string{continent},
+	}
+
+	if continent != "All Regions" && continent != "" {
+		restrictsParams = append(restrictsParams, restrictsContinent)
+	}
+
+	if params.FilterCityCountry {
 		restrictsParams = append(restrictsParams, restrictsCity)
+		restrictsParams = append(restrictsParams, restrictsCountry)
 	}
 
 	req := &aiplatformpb.FindNeighborsRequest{
@@ -172,8 +213,9 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 		Queries: []*aiplatformpb.FindNeighborsRequest_Query{
 			{
 				Datapoint: &aiplatformpb.IndexDatapoint{
-					FeatureVector: queryEmbedding,
-					Restricts:     restrictsParams,
+					FeatureVector:    queryEmbedding,
+					Restricts:        restrictsParams,
+					NumericRestricts: numericRestrictsParams,
 				},
 
 				NeighborCount: int32(config.Limit),

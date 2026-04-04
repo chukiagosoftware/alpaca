@@ -48,6 +48,8 @@ func main() {
 	}
 	defer vsSvc.Close()
 
+	bq, err := vertex.NewBigQueryService(ctx, *config)
+
 	// Setup our http server with OpenTelemetry spans
 	r := gin.Default()
 	r.Use(otelgin.Middleware("vertex-search"))
@@ -56,8 +58,12 @@ func main() {
 
 	r.Use(timeoutMiddleware())
 
-	r.POST("/search", func(c *gin.Context) {
+	r.POST("/api/search", func(c *gin.Context) {
 		SearchHandler(c, config, vsSvc)
+	})
+
+	r.GET("/api/locations", func(c *gin.Context) {
+		LocationSelectHandler(c, config, bq)
 	})
 
 	r.GET("/ping", func(c *gin.Context) {
