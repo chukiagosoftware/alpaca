@@ -51,6 +51,7 @@ func (s *ReviewCrawlerService) CrawlReviews(ctx context.Context, hotel *models.H
 	reviews, err := service.FetchReviewsForLocation(ctx, hotel.SourceHotelID, s.db)
 	if err != nil {
 		log.Printf("Error crawling %s reviews for hotel %s: %v", service.GetSourceName(), hotel.SourceHotelID, err)
+		return 0, err
 	}
 
 	for _, review := range reviews {
@@ -127,22 +128,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to get hotels: %v", err)
 	}
-	log.Printf("Found %d hotels to fetch reviews for.", len(hotels))
+	log.Printf("Found %d hotels to fetch reviews for %s\n", len(hotels), models.SourceTripadvisor)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	totalReviewsCrawled := 0
-	const maxGo = 5
+	const maxGo = 8
 	sem := make(chan struct{}, maxGo)
 
-	for _, hotel := range hotels {
+	log.Printf("Found %d hotels for %s. Starting the fetch.", len(hotels), models.SourceTripadvisor)
+	for i, hotel := range hotels {
+		if i >= 2400 {
+			log.Printf("Fetched %d reviews from %d hotels. Stopping.\n", totalReviewsCrawled, i)
+			break
+		}
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(h *models.Hotel) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			log.Printf("Fetching reviews for %s (%s, %s)", h.Name, h.HotelID, h.Source)
+			log.Printf("Fetching reviews for %d/%d: %s (%s, %s)", i+1, len(hotels), h.Name, h.HotelID, h.Source)
 			reviewsCount, err := crawler.CrawlReviews(ctx, h)
 			if err != nil {
 				log.Printf("Error fetching %s reviews for hotel %s(%s): %v", h.Source, h.Name, h.SourceHotelID, err)
@@ -151,16 +157,16 @@ func main() {
 			mu.Lock()
 			totalReviewsCrawled += reviewsCount
 			mu.Unlock()
-			log.Printf("Fetched %d reviews for hotel %s", reviewsCount, h.SourceHotelID)
+			log.Printf("Fetched %d reviews for hotel %d (%s)", reviewsCount, i+1, h.SourceHotelID)
 
 		}(hotel)
 
 		wg.Wait()
 
-		log.Printf("Fetched %d reviews so far for %s", totalReviewsCrawled, hotel.SourceHotelID)
+		log.Printf("Running total %d/%d reviews/hotels from %s", totalReviewsCrawled, (i + 1), hotel.Source)
 		// Rate limiting between hotels
 		time.Sleep(800 * time.Millisecond)
 	}
 
-	log.Printf("Review fetch completed. Total New Reviews: %d", totalReviewsCrawled)
+	log.Printf("Review fetch completed. Total New Reviews: %d from %d hotels", totalReviewsCrawled, len(hotels))
 }
