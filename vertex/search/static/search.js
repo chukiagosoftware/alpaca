@@ -5,11 +5,9 @@ document.getElementById('searchForm').addEventListener('submit', async (e) => {
     const submitButton = form.querySelector('button');
     const resultsEl = document.getElementById('results');
     const metricsEl = document.getElementById('metrics');
-    const mapEl = document.getElementById('map');
 
     if (!resultsEl || !metricsEl) return;
 
-    // Prevent multiple submissions
     if (form.dataset.submitting === 'true') return;
     form.dataset.submitting = 'true';
     submitButton.disabled = true;
@@ -19,14 +17,10 @@ document.getElementById('searchForm').addEventListener('submit', async (e) => {
 
     try {
         showLoading(true);
-        updateMetrics("Searching vector database...");
-
-        // Load map early
-        const cityCountry = document.getElementById('citycountry')?.value || '';
-        if (mapEl) loadCityMap(cityCountry);
+        metricsEl.innerHTML = 'Searching...';
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
 
         const response = await fetch('/api/search', {
             method: 'POST',
@@ -40,17 +34,46 @@ document.getElementById('searchForm').addEventListener('submit', async (e) => {
 
         const data = await response.json();
 
-        const vectorCount = data.vector_count || data.results?.length || 0;
-        updateMetrics(`${vectorCount} vector search results. Please hold for the best hotels`);
+        // Display review cards in main area
+        resultsEl.innerHTML = '';
 
-        resultsEl.innerHTML = data.completion || '<p>No results found.</p>';
+
+        data.completion.forEach(review => {
+            const header = `${review.Hotel || 'Unknown Hotel'} — ${review.City || ''}`;
+            const body = review.Review || 'No review text';
+            const footer = [];
+
+            if (review.Rating !== undefined) footer.push(`⭐ ${review.Rating}`);
+            if (review.Distance !== undefined) footer.push(`Distance: ${review.Distance.toFixed(3)}`);
+            if (review.Address) footer.push(review.Address);
+
+            resultsEl.innerHTML += `
+                <div class="review">
+                    <div class="review-header">${header}</div>
+                    <div class="review-body">${body}</div>
+                    <div class="review-footer">${footer.join(' | ')}</div>
+                </div>`;
+        });
+
+
+        // Display metrics in the bottom panel
+        if (data.timings) {
+            let html = '<strong>Performance:</strong><br>';
+            Object.entries(data.timings).forEach(([key, value]) => {
+                const label = key.replace('_ms', '').replace('_', ' ');
+                html += `${label}: ${value}ms<br>`;
+            });
+            metricsEl.innerHTML = html;
+        } else {
+            metricsEl.innerHTML = 'Metrics not available';
+        }
 
     } catch (err) {
         console.error('Search error:', err);
         const msg = err.name === 'AbortError'
-            ? 'Request timed out. Please try again.'
-            : 'Search failed. Please check your connection and try again.';
-        updateMetrics(msg);
+            ? 'Request timed out.'
+            : 'Search failed. Please try again.';
+        metricsEl.innerHTML = `<span style="color:red">${msg}</span>`;
         resultsEl.innerHTML = `<p>${msg}</p>`;
     } finally {
         form.dataset.submitting = 'false';
@@ -60,24 +83,19 @@ document.getElementById('searchForm').addEventListener('submit', async (e) => {
     }
 });
 
-// Helper functions
 function showLoading(show) {
     let spinner = document.getElementById('loadingSpinner');
     if (!spinner) {
         spinner = document.createElement('div');
         spinner.id = 'loadingSpinner';
-        spinner.style.cssText = 'text-align:center; padding:30px; font-size:1.8rem;';
         spinner.innerHTML = '⟳';
+        spinner.style.cssText = 'text-align:center; padding:40px; font-size:2.5rem; color:#4299e1;';
     }
+    const resultsArea = document.getElementById('results');
     if (show) {
-        document.getElementById('results').parentNode.prepend(spinner);
+        resultsArea.parentNode.prepend(spinner);
         spinner.style.display = 'block';
-    } else {
+    } else if (spinner.parentNode) {
         spinner.style.display = 'none';
     }
-}
-
-function updateMetrics(html) {
-    const el = document.getElementById('metrics');
-    if (el) el.innerHTML = `<p>${html}</p>`;
 }

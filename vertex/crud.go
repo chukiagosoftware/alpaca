@@ -325,3 +325,86 @@ func (bq *BQ) GetDistinctLocations(ctx context.Context) ([]LocationGroup, error)
 	}
 	return groups, nil
 }
+
+func (bq *BQ) GetMetadataByIDs(ctx context.Context, vectorResults []VectorResult, config *Config) ([]map[string]any, error) {
+	if len(vectorResults) == 0 {
+		return nil, nil
+	}
+
+	// Extract IDs for the query
+	ids := make([]int64, 0, len(vectorResults))
+	idToDistance := make(map[string]float64, len(vectorResults))
+
+	for _, vr := range vectorResults {
+		if i, err := strconv.ParseInt(vr.ID, 10, 64); err == nil {
+			ids = append(ids, i)
+			idToDistance[vr.ID] = vr.Distance
+		}
+	}
+
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	tableEmbed := fmt.Sprintf("%s.%s.%s", bq.ProjectID, bq.DatasetID, config.BigReviewEmbeddings)
+	//tableReviews := fmt.Sprintf("%s.%s.%s", bq.ProjectID, bq.DatasetID, config.BigReviews)
+	tableHotels := fmt.Sprintf("%s.%s.%s", bq.ProjectID, bq.DatasetID, config.BigHotels)
+
+	// Embedding ID is used to add the vector distance to results
+	sql := fmt.Sprintf(`
+		SELECT
+		    e.id,
+			e.review_text,
+			e.rating,
+			e.reviewer_name,
+			e.google_maps_uri,
+			e.photo_name,
+			e.city,
+			e.country,
+			e.continent,
+			e.hotel_name,
+			h.street_address
+		FROM %s e
+		JOIN %s h ON h.name = e.hotel_name
+		WHERE e.id IN UNNEST(@ids)
+	`, tableEmbed, tableHotels)
+
+	params := []bigquery.QueryParameter{
+		{Name: "ids", Value: ids},
+	}
+
+	it, err := bq.ExecuteQuery(ctx, sql, params)
+	if err != nil {
+		return nil, fmt.Errorf("metadata query failed: %w", err)
+	}
+
+	metadataMap := make(map[string]map[string]any)
+	for {
+		var row map[string]bigquery.Value
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read row: %w", err)
+		}
+
+		idStr := fmt.Sprintf("%v", row["id"])
+		m := make(map[string]any)
+		for k, v := range row {
+			m[k] = v
+		}
+		metadataMap[idStr] = m
+	}
+
+	// Rebuild results in original vector search order, attaching distance
+	var finalResults []map[string]any
+	for _, vr := range vectorResults {
+		if meta, ok := metadataMap[vr.ID]; ok {
+			meta["distance"] = vr.Distance
+			finalResults = append(finalResults, meta)
+		}
+	}
+
+	return finalResults, nil
+}

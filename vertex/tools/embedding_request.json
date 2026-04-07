@@ -1,0 +1,9 @@
+{
+  "instances": [
+    {
+      "task_type": "RETRIEVAL_DOCUMENT",
+      "title": "document title",
+      "content": "Quiet hotels that are near to the public transportation"
+    },
+  ],
+}

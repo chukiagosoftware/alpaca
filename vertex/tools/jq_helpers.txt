@@ -15,8 +15,8 @@ Generate question embeddings from request.json
 curl -X POST \
     -H "Authorization: Bearer $(gcloud auth print-access-token)" \
     -H "Content-Type: application/json; charset=utf-8" \
-    -d @request.json \
-    "https://<location>-aiplatform.googleapis.com/v1/projects/<project-id>>/locations/us-central1/publishers/google/models/gemini-embedding-001:predict"
+    -d @embedding_request.json \
+    "https://$LOCATION-aiplatform.googleapis.com/v1/projects/$GCP_PROJECT_ID/locations/$LOCATION/publishers/google/models/gemini-embedding-001:predict"
 
  jq -c '.predictions[0].embeddings.values'
 

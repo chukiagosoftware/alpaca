@@ -51,15 +51,16 @@
             background-color: #0056b3;
         }
     </style>
+    <link rel="stylesheet" href="static/reviews.css">
 </head>
 <body>
 <div class="top-section">
     <div class="left-column">
         <h2>Find your Hotel</h2>
         <form id="searchForm">
-            <select id="continent"><option value="All Regions">All Regions</option></select>
-            <select id="citycountry"><option value="All Cities">All Cities</option></select>
-            <select id="rating">
+            <select id="continent" name="continent"><option value="">All Regions</option></select>
+            <select id="citycountry" name="citycountry"><option value="">All Cities</option></select>
+            <select id="rating" name="rating">
                 <option value=" ">Any Rating</option>
                 <option value="1">1</option>
                 <option value="2">2</option>
@@ -67,7 +68,7 @@
                 <option value="4">4</option>
                 <option value="5">5</option>
             </select>
-            <input id="query" placeholder="My happy place">
+            <input id="question" name="question" placeholder="A quiet hotel near good restaurants">
             <button>Search</button>
             <script>
                 let locationGroups = [];
@@ -89,20 +90,24 @@
                     });
 
                 function populateContinents() {
-                    const sel = document.getElementById('continent');
-                    sel.innerHTML = '<option value="All Regions">All Regions</option>';
+                    const continentSel = document.getElementById('continent');
+                    continentSel.innerHTML = '<option value="">All Regions</option>';
+
                     locationGroups.forEach(g => {
-                        sel.appendChild(new Option(g.continent, g.continent));
+                        const option = new Option(g.continent, g.continent);
+                        continentSel.appendChild(option);
                     });
                 }
 
                 document.getElementById('continent').addEventListener('change', (e) => {
                     const cityCountrySel = document.getElementById('citycountry');
-                    cityCountrySel.innerHTML = '<option value="All Cities">All Cities</option>';
-                    if (!e.target.value) return;
+                    cityCountrySel.innerHTML = '<option value="">All Cities</option>';
 
-                    const group = locationGroups.find(g => g.continent === e.target.value);
-                    if (group) {
+                    const selectedContinent = e.target.value;
+                    if (!selectedContinent) return;
+
+                    const group = locationGroups.find(g => g.continent === selectedContinent);
+                    if (group && group.city_countries) {
                         group.city_countries.forEach(cc => {
                             cityCountrySel.appendChild(new Option(cc, cc));
                         });

@@ -59,11 +59,11 @@ func main() {
 	r.Use(timeoutMiddleware())
 
 	r.POST("/api/search", func(c *gin.Context) {
-		SearchHandler(c, config, vsSvc)
+		SearchHandler(c, config, vsSvc, bq)
 	})
 
 	r.GET("/api/locations", func(c *gin.Context) {
-		LocationSelectHandler(c, config, bq)
+		LocationSelectHandler(c, bq)
 	})
 
 	r.GET("/ping", func(c *gin.Context) {

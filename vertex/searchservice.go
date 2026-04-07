@@ -11,16 +11,28 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/api/option"
 	"google.golang.org/genai" // Added for GenAI embeddings
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
+type SearchForm struct {
+	Question    string `form:"question"`
+	Continent   string `form:"continent"`
+	CityCountry string `form:"citycountry"`
+	Rating      string `form:"rating"`
+}
+
+type VectorResult struct {
+	ID       string  `json:"id"`
+	Distance float64 `json:"distance"`
+}
+
 type SearchInput struct {
-	FilterCityCountry bool
-	FilterRating      bool
-	Rating            int
+	Question          string
 	Continent         string
 	City              string
 	Country           string
+	Rating            int
+	FilterRating      bool
+	FilterCityCountry bool
 }
 
 type Config struct {
@@ -37,6 +49,11 @@ type Config struct {
 	Query                        string `mapstructure:"query"`
 	Prompt                       string `mapstructure:"prompt"`
 	CompletionModel              string `mapstructure:"completion_model"`
+	SecurityPrompt               string `mapstructure:"security_prompt"`
+	SecurityModel                string `mapstructure:"security_model"`
+	BigReviewEmbeddings          string `mapstructure:"big_review_embeddings"`
+	BigHotels                    string `mapstructure:"big_hotels"`
+	BigReviews                   string `mapstructure:"big_reviews"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -113,22 +130,57 @@ func (s *VertexSearchService) Close() {
 	}
 }
 
-func (s *VertexSearchService) PromptCompletion(ctx context.Context, config Config, question string, results []map[string]any) (string, error) {
-	model := config.CompletionModel
-	resultsStr := ""
-	for _, r := range results {
-		resultsStr += fmt.Sprintf("- Hotel: %v, City: %v, Review: %v\n", r["hotel_name"], r["city"], r["review_text"])
+func (s *VertexSearchService) CheckQuerySafety(ctx context.Context, config Config, question string) (bool, error) {
+	fullPrompt := fmt.Sprintf("%s\n\nUser query: %s\n\nAnswer with only the word YES or NO.", config.SecurityPrompt, question)
+	prompt := genai.Text(fullPrompt)
+
+	resp, err := s.genaiClient.Models.GenerateContent(ctx, config.SecurityModel, prompt, &genai.GenerateContentConfig{})
+	if err != nil {
+		return false, err
 	}
 
-	prompt := genai.Text(fmt.Sprintf(config.Prompt, question, resultsStr))
-	resp, err := s.genaiClient.Models.GenerateContent(ctx, model, prompt, &genai.GenerateContentConfig{})
+	text := strings.ToLower(strings.TrimSpace(resp.Text()))
+	return strings.Contains(text, "yes"), nil
+}
 
+func (s *VertexSearchService) PromptCompletion(ctx context.Context, config Config, question string, results []map[string]any) (string, error) {
+	jsonSchema := map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"Hotel":    map[string]any{"type": "string"},
+				"City":     map[string]any{"type": "string"},
+				"Review":   map[string]any{"type": "string"},
+				"Rating":   map[string]any{"type": "number"},
+				"Distance": map[string]any{"type": "number"},
+				"Address":  map[string]any{"type": "string"},
+			},
+			"required": []string{"Hotel", "City", "Review", "Rating", "Distance", "Address"},
+		},
+	}
+	var reviewContext strings.Builder
+	for i, r := range results {
+		reviewContext.WriteString(fmt.Sprintf("Review %d:\nHotel: %v\nCity: %v\nReview: %v\nRating: %v\nDistance: %.3f\nAddress: %v\n\n",
+			i+1, r["hotel_name"], r["city"], r["review_text"], r["rating"], r["distance"], r["street_address"]))
+	}
+	promptText := fmt.Sprintf(`%s
+
+User Question: %s
+
+Reviews:
+%s`, config.Prompt, question, reviewContext.String())
+	genAIPrompt := genai.Text(promptText)
+	resp, err := s.genaiClient.Models.GenerateContent(ctx, config.CompletionModel, genAIPrompt, &genai.GenerateContentConfig{
+		ResponseMIMEType:   "application/json",
+		ResponseJsonSchema: jsonSchema,
+		Temperature:        new(float32(0.2)),
+		MaxOutputTokens:    16384,
+	})
 	if err != nil {
 		return "", err
-
 	}
 	return resp.Text(), nil
-
 }
 
 // GenerateEmbedding converts a user question string into a 768-dimensional vector using Gemini embedding model
@@ -152,7 +204,7 @@ func (s *VertexSearchService) GenerateEmbedding(ctx context.Context, question st
 }
 
 // VertexSearchEndpoint performs similarity search against a deployed IndexEndpoint.
-func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, params SearchInput) ([]map[string]any, error) {
+func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config Config, queryEmbedding []float32, params SearchInput) ([]VectorResult, error) {
 
 	// The IndexEndpoint path format is 'projects/{project_id}/locations/{location}/indexEndpoints/{index_endpoint_id}'
 	endpointPath := fmt.Sprintf("projects/%s/locations/%s/indexEndpoints/%s", s.projectID, s.location, config.EndpointID)
@@ -196,7 +248,7 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 		AllowList: []string{continent},
 	}
 
-	if continent != "All Regions" && continent != "" {
+	if continent != "" {
 		restrictsParams = append(restrictsParams, restrictsContinent)
 	}
 
@@ -221,7 +273,7 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 				NeighborCount: int32(config.Limit),
 			},
 		},
-		ReturnFullDatapoint: true,
+		ReturnFullDatapoint: false,
 	}
 
 	resp, err := s.matchClient.FindNeighbors(ctx, req)
@@ -229,37 +281,48 @@ func (s *VertexSearchService) VertexSearchEndpoint(ctx context.Context, config C
 		log.Fatalf("Failed to find neighbors: %v", err)
 	}
 
-	var reviews []map[string]any
-
+	var results []VectorResult
 	for _, nearestNeighbors := range resp.GetNearestNeighbors() {
 		for _, neighbor := range nearestNeighbors.GetNeighbors() {
-			//fmt.Printf("  Datapoint ID: %s, Distance: %f\n", neighbor.GetDatapoint().GetDatapointId(), neighbor.GetDistance())
-			searchResult := map[string]any{
-				"id":       neighbor.GetDatapoint().GetDatapointId(),
-				"distance": neighbor.GetDistance(),
-			}
-			// Access metadata
-			if metadata := neighbor.GetDatapoint().GetEmbeddingMetadata(); metadata != nil {
-				for key, value := range metadata.Fields {
-					if key == "city" || key == "country" || key == "hotel_name" || key == "review_text" {
-						switch v := value.GetKind().(type) {
-						case *structpb.Value_StringValue:
-							searchResult[key] = strings.TrimSpace(v.StringValue)
-						case *structpb.Value_NumberValue:
-							searchResult[key] = v.NumberValue
-						case *structpb.Value_BoolValue:
-
-							searchResult[key] = v.BoolValue
-						default:
-
-							searchResult[key] = value
-						}
-					}
-				}
-			}
-			reviews = append(reviews, searchResult)
-
+			results = append(results, VectorResult{
+				ID:       neighbor.GetDatapoint().GetDatapointId(),
+				Distance: neighbor.GetDistance(),
+			})
 		}
 	}
-	return reviews, nil
+
+	return results, nil
+
+	//var reviews []map[string]any
+	//for _, nearestNeighbors := range resp.GetNearestNeighbors() {
+	//	for _, neighbor := range nearestNeighbors.GetNeighbors() {
+	//		//fmt.Printf("  Datapoint ID: %s, Distance: %f\n", neighbor.GetDatapoint().GetDatapointId(), neighbor.GetDistance())
+	//		searchResult := map[string]any{
+	//			"id":       neighbor.GetDatapoint().GetDatapointId(),
+	//			"distance": neighbor.GetDistance(),
+	//		}
+	//		// Access metadata
+	//		if metadata := neighbor.GetDatapoint().GetEmbeddingMetadata(); metadata != nil {
+	//			for key, value := range metadata.Fields {
+	//				if key == "city" || key == "country" || key == "hotel_name" || key == "review_text" {
+	//					switch v := value.GetKind().(type) {
+	//					case *structpb.Value_StringValue:
+	//						searchResult[key] = strings.TrimSpace(v.StringValue)
+	//					case *structpb.Value_NumberValue:
+	//						searchResult[key] = v.NumberValue
+	//					case *structpb.Value_BoolValue:
+	//
+	//						searchResult[key] = v.BoolValue
+	//					default:
+	//
+	//						searchResult[key] = value
+	//					}
+	//				}
+	//			}
+	//		}
+	//		reviews = append(reviews, searchResult)
+	//
+	//	}
+	//}
+	//return reviews, nil
 }
