@@ -29,17 +29,32 @@ func main() {
 
 	var hotels []*models.Hotel
 	db.Joins("LEFT JOIN cities ON hotels.city = cities.name AND hotels.country = cities.country").
-		Where("cities.continent IN ?", []string{"us"}). //} "mexico", "canada", "europe"}).
+		Where("cities.continent IN ?", []string{"USA"}). //} "mexico", "canada", "europe"}).
 		Find(&hotels)
 
-	log.Printf("Found %d hotels for Yelp processing", len(hotels))
+	remaining := hotels[537:]
+	lenR := len(remaining)
+	log.Printf("Found %d hotels for Yelp processing", lenR)
 
-	for i, hotel := range hotels {
-		if i < 24 {
-			continue
-			log.Printf("Skipping %s", hotel.Name)
-		}
-		log.Printf("[%d/%d] Processing %s", i+1, len(hotels), hotel.Name)
+	// [190/3765] Processing The Westin Detroit Metropolitan Airport
+	//2026/04/06 14:04:20 Saved hotel page: hotelReviewSaved/yelp/Detroit,United States/reviews-the_westin_detroit_metropolitan_airport-ta_90003.html
+	//2026/04/06 14:04:25 [191/3765] Processing Omni Louisville Hotel
+	//2026/04/06 14:04:37 No biz link found for Omni Louisville Hotel
+	for i, hotel := range remaining {
+		// [538/4302] Processing Renaissance Waterford Oklahoma City Hotel
+		//2026/04/05 23:03:26 No biz link found for Renaissance Waterford Oklahoma City Hotel
+		//2026/04/05 23:03:26 [539/4302] Processing The Grandison Inn Bed & Breakfast
+		//2026/04/05 23:03:35 No biz link found for The Grandison Inn Bed & Breakfast
+		//2026/04/05 23:03:35 [540/4302] Processing The Ellison, Oklahoma City, a Tribute Portfolio Hotel
+		//2026/04/05 23:03:45 No biz link found for The Ellison, Oklahoma City, a Tribute Portfolio Hotel
+		//2026/04/05 23:03:45 [541/4302] Processing Citizen House
+		//2026/04/05 23:03:55 No biz link found for Citizen House
+		//2026/04/05 23:03:55 [542/4302] Processing Two Hearts Inn
+		//if i < 537 {
+		//	log.Printf("Skipping %s", hotel.Name)
+		//	continue
+		//}
+		log.Printf("[%d/%d] Processing %s", i+1, lenR, hotel.Name)
 
 		safeName := sanitizeFilename(hotel.Name)
 		subDir := filepath.Join("hotelReviewSaved", "yelp", fmt.Sprintf("%s,%s", hotel.City, hotel.Country))

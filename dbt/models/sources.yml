@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: bq
+    schema: alpacaCentral  # e.g. analytics or wherever tables live
+    tables:
+      - name: main_hotel_reviews_all_110k
+      - name: bigReview_embeddings
+      - name: review_embeddings
+      - name: bigHotels
+      - name: hotels
+      - name: hotels_old_from_airportcities_amadeusdev_google_tripadvisor
+      - name: bigCity
+      - name: airportCities
+      - name: cities
+      - name: reviews
+      - name: bigReviews
+      - name: hotel_reviews_uploaded_to_BQ

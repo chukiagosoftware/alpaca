@@ -15,3 +15,7 @@ SQL
 *.dat
 *.txt
 ta_review_download_statistics/
+dbt_packages/
+packages/
+target
+logs

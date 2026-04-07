@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: missing_reviews
+    description: Reviews in 110k not in embeddings
+  - name: city_hotel_counts
+    description: Hotels per city (low <10 flagged)
+  - name: city_review_counts
+    description: Reviews per city (low <50 flagged)
+  - name: duplicates
+    description: Dup reviews (same source_review_id + source)
