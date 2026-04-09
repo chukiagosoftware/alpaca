@@ -12,35 +12,57 @@ WITH latest_reviews AS (
         review_date,
         google_maps_uri,
         photo_name,
-        table_source
+        table_source,
+        reviewer_location,
+        MD5(TRIM(REGEXP_REPLACE(LOWER(review_text), r'\s+', ' '))) as review_text_hash
 FROM {{ ref('all_reviews') }}
+WHERE review_text IS NOT NULL
     ),
 
     embeddings AS (
-SELECT id, hotel_name
+SELECT
+    MD5(TRIM(REGEXP_REPLACE(LOWER(review_text), r'\s+', ' '))) as review_text_hash,
+    hotel_name,
+    city,
+    country,
+    continent
 FROM {{ source('bq', 'bigReview_embeddings') }}
 
-UNION DISTINCT
+UNION ALL
 
-SELECT id, hotel_name
+SELECT
+    MD5(TRIM(REGEXP_REPLACE(LOWER(review_text), r'\s+', ' '))) as review_text_hash,
+    hotel_name,
+    city,
+    country,
+    NULL as continent
 FROM {{ source('bq', 'review_embeddings') }}
     )
 
 SELECT
-    r.*,
+    r.id,
+    r.hotel_id,
+    r.source_review_id,
+    r.insert_id,
+    r.review_text,
+    r.reviewer_name,
+    r.rating,
+    r.review_date,
+    r.google_maps_uri,
+    r.photo_name,
+    r.table_source,
     h.hotel_name as hotel_hotel_name,
     h.street_address,
     h.city as hotel_city,
     h.country as hotel_country,
     c.city,
     c.country as city_country,
-    c.continent
+    c.continent,
+    'TRULY_MISSING' as missing_status
 FROM latest_reviews r
-         LEFT JOIN embeddings e
-                   ON r.id = e.id
-         LEFT JOIN {{ ref('all_hotels') }} h
-ON h.source_hotel_id = r.hotel_id
+         LEFT JOIN embeddings e ON r.review_text_hash = e.review_text_hash
+         LEFT JOIN {{ ref('all_hotels') }} h ON h.source_hotel_id = r.hotel_id
     LEFT JOIN {{ ref('dim_cities') }} c
-    ON TRIM(LOWER(c.city)) = h.city
-WHERE e.id IS NULL
-ORDER BY r.table_source, r.id
+    ON TRIM(LOWER(c.city)) = TRIM(LOWER(COALESCE(h.city, r.reviewer_location)))
+WHERE e.review_text_hash IS NULL
+ORDER BY r.table_source, r.review_text
