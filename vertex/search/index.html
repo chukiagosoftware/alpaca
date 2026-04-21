@@ -1,132 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hotel Search</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-        .top-section {
-            display: flex;
-            flex: 1;
-        }
-        .left-column {
-            width: 30%;
-            padding: 20px;
-            border-right: 1px solid #ccc;
-        }
-        .right-column {
-            width: 70%;
-            padding: 20px;
-            overflow-y: auto;
-        }
-        .bottom-panel {
-            height: 200px;
-            padding: 20px;
-            border-top: 1px solid #ccc;
-            background-color: #f9f9f9;
-        }
-        form {
-            display: flex;
-            flex-direction: column;
-        }
-        input, select, button {
-            margin-bottom: 10px;
-            padding: 8px;
-        }
-        button {
-            background-color: #007bff;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-    </style>
-    <link rel="stylesheet" href="static/reviews.css">
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alpaca Hotel Search</title>
 </head>
 <body>
-<div class="top-section">
-    <div class="left-column">
-        <h2>Find your Hotel</h2>
-        <form id="searchForm">
-            <select id="continent" name="continent"><option value="">All Regions</option></select>
-            <select id="citycountry" name="citycountry"><option value="">All Cities</option></select>
-            <select id="rating" name="rating">
-                <option value=" ">Any Rating</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-            </select>
-            <input id="question" name="question" placeholder="A quiet hotel near good restaurants">
-            <button>Search</button>
-            <script>
-                let locationGroups = [];
-
-                fetch('/api/locations')
-                    .then(r => {
-                        if (!r.ok) throw new Error(`HTTP error ${r.status}: ${r.statusText}`);
-                        return r.json()
-                    })
-                    .then(groups => {
-                        locationGroups = groups;
-                        if (locationGroups.length === 0) {
-                            throw new Error('Locations API returned no data');
-                        }
-                        populateContinents();
-                    })
-                    .catch(err => {
-                        console.error('Failed to load locations (using defaults):', err);
-                    });
-
-                function populateContinents() {
-                    const continentSel = document.getElementById('continent');
-                    continentSel.innerHTML = '<option value="">All Regions</option>';
-
-                    locationGroups.forEach(g => {
-                        const option = new Option(g.continent, g.continent);
-                        continentSel.appendChild(option);
-                    });
-                }
-
-                document.getElementById('continent').addEventListener('change', (e) => {
-                    const cityCountrySel = document.getElementById('citycountry');
-                    cityCountrySel.innerHTML = '<option value="">All Cities</option>';
-
-                    const selectedContinent = e.target.value;
-                    if (!selectedContinent) return;
-
-                    const group = locationGroups.find(g => g.continent === selectedContinent);
-                    if (group && group.city_countries) {
-                        group.city_countries.forEach(cc => {
-                            cityCountrySel.appendChild(new Option(cc, cc));
-                        });
-                    }
-                });
-
-            </script>
-        </form>
-    </div>
-    <div class="right-column">
-        <h2>Hotel Results</h2><br>
-        <div id="results">Submit a search to see results here.</div>
-    </div>
-</div>
-<div class="bottom-panel">
-    <h3>OpenTelemetry Metrics</h3>
-    <div id="metrics">Metrics will be displayed here.</div>
-</div>
-
-<script src="/static/search.js"></script>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

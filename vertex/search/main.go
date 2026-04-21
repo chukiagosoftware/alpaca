@@ -52,6 +52,7 @@ func main() {
 
 	// Setup our http server with OpenTelemetry spans
 	r := gin.Default()
+	r.Use(CORSMiddleware())
 	r.Use(otelgin.Middleware("vertex-search"))
 	r.StaticFile("/", "vertex/search/index.html")
 	r.Static("/static", "vertex/search/static")

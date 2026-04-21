@@ -5,22 +5,30 @@ import {MapPin, Search, TrendingUp} from 'lucide-react';
 // If same domain, use empty string. If different domain, use full URL
 const API_BASE_URL = 'http://localhost:8080';
 
-interface Location {
-    region: string;
-    cities: string[];
+interface SearchResult {
+    Hotel: string;
+    City: string;
+    Review: string;
+    Rating: number;
+    Distance: number;
+    Address: string;
 }
 
-interface SearchResult {
-    id: number;
-    title: string;
-    location: string;
-    rating: number;
-    reviews: number;
-    reviewText: string;
+interface SearchApiResponse {
+    completion: SearchResult[];
+    vector_count: number;
+    safe_query: boolean;
+    timings?: {
+        embedding_ms: number;
+        vector_search_ms: number;
+        safety_ms: number;
+        metadata_ms: number;
+        llm_completion_ms: number;
+    };
 }
 
 export default function App() {
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchQuery, setSearchQuery] = useState('quiet hotel with a good bar');
     const [selectedRegion, setSelectedRegion] = useState('');
     const [selectedCity, setSelectedCity] = useState('');
     const [selectedRating, setSelectedRating] = useState('');
@@ -28,6 +36,9 @@ export default function App() {
     const [locations, setLocations] = useState<Record<string, string[]>>({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [apiStats, setApiStats] = useState<SearchApiResponse['timings'] | null>(null);
+    const [vectorCount, setVectorCount] = useState(0);
+    const [safeQuery, setSafeQuery] = useState(true);
 
     // Fetch locations on component mount
     useEffect(() => {
@@ -37,23 +48,23 @@ export default function App() {
     const fetchLocations = async () => {
         try {
             const url = `${API_BASE_URL}/api/locations`;
-            console.log('Fetching locations from:', url);
-
             const response = await fetch(url);
-            console.log('Response status:', response.status);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const data = await response.json();
-            console.log('Locations data:', data);
 
-            // Assuming API returns: { "North America": ["New York", "Toronto"], ... }
-            // Adjust this mapping based on your actual API response structure
-            setLocations(data);
+            const locationMap: Record<string, string[]> = {};
+            data.forEach((item: any) => {
+                if (item.continent && Array.isArray(item.city_countries)) {
+                    locationMap[item.continent] = item.city_countries;
+                }
+            });
+
+            setLocations(locationMap);
         } catch (err) {
-            console.error('Error fetching locations:', err);
             const errorMsg = err instanceof Error ? err.message : 'Failed to load locations';
             setError(`Failed to load locations: ${errorMsg}`);
         }
@@ -70,47 +81,46 @@ export default function App() {
         try {
             const params = new URLSearchParams();
             if (searchQuery) params.append('question', searchQuery);
-            if (selectedRegion) params.append('region', selectedRegion);
-            if (selectedCity) params.append('city', selectedCity);
+            if (selectedRegion) params.append('continent', selectedRegion);
+            if (selectedCity) params.append('citycountry', selectedCity);
             if (selectedRating) params.append('rating', selectedRating);
 
             const url = `${API_BASE_URL}/api/search?${params.toString()}`;
-            console.log('Searching:', url);
-
-            const response = await fetch(url);
-            console.log('Search response status:', response.status);
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: params.toString(),
+            });
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const data = await response.json();
-            console.log('Search results:', data);
+            const data: SearchApiResponse = await response.json();
 
-            // Assuming API returns: { results: [...] }
-            // Adjust this based on your actual API response structure
-            setSearchResults(data.results || data);
+            setSearchResults(Array.isArray(data.completion) ? data.completion : []);
+            setVectorCount(data.vector_count ?? 0);
+            setSafeQuery(Boolean(data.safe_query));
+            setApiStats(data.timings ?? null);
         } catch (err) {
-            console.error('Error searching:', err);
             const errorMsg = err instanceof Error ? err.message : 'Unknown error';
             setError(`Search failed: ${errorMsg}`);
             setSearchResults([]);
+            setVectorCount(0);
+            setSafeQuery(true);
+            setApiStats(null);
         } finally {
             setLoading(false);
         }
     };
 
-    const ratingDistribution = [
-        {name: '5 Stars', value: searchResults.filter(r => r.rating === 5).length, color: '#22c55e'},
-        {name: '4 Stars', value: searchResults.filter(r => r.rating === 4).length, color: '#3b82f6'},
-        {name: '3 Stars', value: searchResults.filter(r => r.rating === 3).length, color: '#f59e0b'},
-    ];
-
-    const totalReviews = searchResults.reduce((sum, r) => sum + r.reviews, 0);
+    const totalReviews = searchResults.length;
     const avgRating = searchResults.length > 0
-        ? (searchResults.reduce((sum, r) => sum + r.rating, 0) / searchResults.length).toFixed(1)
-        : 0;
-    const uniqueCities = new Set(searchResults.map(r => r.location)).size;
+        ? (searchResults.reduce((sum, r) => sum + Number(r.Rating), 0) / searchResults.length).toFixed(1)
+        : '0.0';
+    const uniqueCities = new Set(searchResults.map(r => r.City)).size;
 
     return (
         <div className="size-full flex flex-col bg-gray-50 p-6 gap-6">
@@ -120,7 +130,7 @@ export default function App() {
                     <form onSubmit={handleSearch} className="bg-white rounded-lg shadow-sm p-6 flex flex-col gap-4">
                         <h2 className="flex items-center gap-2">
                             <Search className="w-5 h-5"/>
-                            Search Filters
+                            Alpaca AI Hotel Search
                         </h2>
 
                         {error && (
@@ -141,7 +151,7 @@ export default function App() {
                         </div>
 
                         <div className="flex flex-col gap-2">
-                            <label className="text-sm text-gray-600">Region</label>
+                            <label className="text-sm text-gray-600">Continent</label>
                             <select
                                 value={selectedRegion}
                                 onChange={(e) => {
@@ -204,24 +214,40 @@ export default function App() {
                         <table className="w-full text-sm">
                             <tbody className="divide-y divide-gray-200">
                             <tr>
+                                <td className="py-2 text-gray-600">Average Rating</td>
+                                <td className="py-2 text-right">{avgRating} ⭐</td>
+                            </tr>
+                            <tr>
+                                <td className="py-2 text-gray-600">Embedding ms</td>
+                                <td className="py-2 text-right">{apiStats?.embedding_ms ?? 0}</td>
+                            </tr>
+                            <tr>
+                                <td className="py-2 text-gray-600">LLM Completion ms</td>
+                                <td className="py-2 text-right">{apiStats?.llm_completion_ms ?? 0}</td>
+                            </tr>
+                            <tr>
+                                <td className="py-2 text-gray-600">Metadata ms</td>
+                                <td className="py-2 text-right">{apiStats?.metadata_ms ?? 0}</td>
+                            </tr>
+                            <tr>
+                                <td className="py-2 text-gray-600">Safe Query</td>
+                                <td className="py-2 text-right">{safeQuery ? 'Yes' : 'No'}</td>
+                            </tr>
+                            <tr>
                                 <td className="py-2 text-gray-600">Total Results</td>
-                                <td className="py-2 text-right">{searchResults.length}</td>
+                                <td className="py-2 text-right">{totalReviews}</td>
                             </tr>
                             <tr>
                                 <td className="py-2 text-gray-600">Unique Cities</td>
                                 <td className="py-2 text-right">{uniqueCities}</td>
                             </tr>
                             <tr>
-                                <td className="py-2 text-gray-600">Average Rating</td>
-                                <td className="py-2 text-right">{avgRating} ⭐</td>
+                                <td className="py-2 text-gray-600">Vector Count</td>
+                                <td className="py-2 text-right">{vectorCount}</td>
                             </tr>
                             <tr>
-                                <td className="py-2 text-gray-600">Total Reviews</td>
-                                <td className="py-2 text-right">{totalReviews.toLocaleString()}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Regions Covered</td>
-                                <td className="py-2 text-right">{selectedRegion || 'All'}</td>
+                                <td className="py-2 text-gray-600">Vector Search ms</td>
+                                <td className="py-2 text-right">{apiStats?.vector_search_ms ?? 0}</td>
                             </tr>
                             </tbody>
                         </table>
@@ -243,21 +269,30 @@ export default function App() {
                             </div>
                         ) : (
                             <div className="flex flex-col gap-3">
-                                {searchResults.map(result => (
-                                    <div key={result.id}
-                                         className="p-4 border border-gray-200 rounded-lg hover:border-blue-400 transition-colors">
+                                {searchResults.map((result, index) => (
+                                    <div
+                                        key={`${result.Hotel}-${index}`}
+                                        className="p-4 border border-gray-200 rounded-lg hover:border-blue-400 transition-colors"
+                                    >
                                         <div className="flex justify-between items-start mb-2">
-                                            <h3 className="text-lg">{result.title}</h3>
+                                            <h3 className="text-lg">{result.Hotel}</h3>
                                             <div className="flex items-center gap-1">
-                                                {'⭐'.repeat(result.rating)}
+                                                {'⭐'.repeat(Math.round(result.Rating))}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 text-sm text-gray-600 mb-2">
                                             <MapPin className="w-4 h-4"/>
-                                            {result.location}
+                                            {result.City}
                                         </div>
-                                        <p className="text-sm text-gray-700 mb-2">{result.reviewText}</p>
-                                        <div className="text-sm text-gray-500">{result.reviews} reviews</div>
+                                        <p className="text-sm text-gray-700 mb-2">{result.Review}</p>
+                                        <div className="flex items-center justify-between gap-3 text-sm text-gray-500">
+    <span
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">
+        <TrendingUp className="w-3.5 h-3.5"/>
+        {(1 - result.Distance).toFixed(3)} relevance
+    </span>
+                                            <span className="truncate">{result.Address}</span>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -274,8 +309,8 @@ export default function App() {
                             className="h-32 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">
                             <div className="text-center">
                                 <MapPin className="w-6 h-6 mx-auto mb-2"/>
-                                <div>Showing {searchResults.length} locations across {uniqueCities} cities</div>
-                                <div className="text-sm mt-1">Regions: {selectedRegion || 'All'}</div>
+                                <div>Showing {searchResults.length} results across {uniqueCities} cities</div>
+                                <div className="text-sm mt-1">Continent: {selectedRegion || 'All'}</div>
                             </div>
                         </div>
                     </div>
