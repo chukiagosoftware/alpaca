@@ -1,33 +1,49 @@
-# Build stage
-FROM golang:1.25-alpine AS builder
+# Stage 1: Build the Vite/React frontend
+FROM node:20-alpine AS frontend-builder
 
-# Set working directory
 WORKDIR /alpaca
 
-# Copy only necessary Vertex search files and config (no go.mod yet)
-COPY vertex/search/ ./vertex/search/
-COPY vertex/openTelemetry.go ./vertex/
-COPY vertex/searchservice.go ./vertex/
-COPY config.yaml ./
+# Copy package files first for better layer caching
+COPY frontend-vite/package*.json ./
+RUN npm ci --frozen-lockfile
 
-# Initialize a new minimal go.mod based on copied sources (replace module name as needed)
-RUN go mod init github.com/chukiagosoftware/alpaca && go mod tidy
+COPY frontend-vite ./
+RUN npm run build
 
-# Build the search application only
-RUN go build -o search vertex/search/main.go vertex/search/http_handlers.go
+# Stage 2: Build the Go binary
+FROM golang:1.26-alpine AS builder
 
+WORKDIR /alpaca
+
+# Copy Go dependency files first (caching)
+COPY vertex/api/go.mod vertex/api/go.sum ./vertex/api/
+COPY go.mod go.sum ./
+RUN cd vertex/api && go mod download
+
+# Copy Go source code
+COPY vertex/api ./vertex/api
+COPY vertex/config.go vertex/llm_completion.go vertex/llm_router.go vertex/openTelemetry.go vertex/searchservice.go vertex/vector_search.go ./vertex/
+
+# Build the statically linked binary
+RUN cd vertex/api && CGO_ENABLED=0 GOOS=linux go build -o /search .
+
+# Final runtime stage
 FROM alpine:latest
-# Install CA certificates for TLS verification
+
+# Install CA certificates for TLS
 RUN apk add --no-cache ca-certificates
 
-# Copy the built binary and necessary files
-COPY --from=builder /alpaca/search /search
-COPY --from=builder /alpaca/vertex/search/index.html /vertex/search/
-COPY --from=builder /alpaca/vertex/search/static/ /vertex/search/static/
-COPY --from=builder /alpaca/config.yaml /
+WORKDIR /alpaca
 
-# Expose port
+# Copy the compiled Go binary from Stage 2
+COPY --from=builder /search /search
+
+# Copy the built frontend (correct source path from Stage 1)
+COPY --from=frontend-builder /alpaca/dist ./frontend-vite/dist
+
+# Copy config to the correct location expected by the alpacalication
+COPY config.yaml ./config.yaml
+
 EXPOSE 8080
 
-# Run the application
 CMD ["/search"]
