@@ -25,13 +25,33 @@ func main() {
 		// -- Service Account Vertex permission
 		sa, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding", &projects.IAMMemberArgs{
 			Project: pulumi.String(project),
-			Role:    pulumi.String("roles/aiplatform.user"),
+			Role:    pulumi.String("roles/vectorsearch.viewer"),                                               //aiplatform.user
 			Member:  pulumi.String("serviceAccount:alpaca-cloudrun-sa@golang1212025.iam.gserviceaccount.com"), // placeholder
 		})
 		if err != nil {
 			return err
 		}
 		_ = sa
+
+		bqViewer, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding-bq", &projects.IAMMemberArgs{
+			Project: pulumi.String(project),
+			Role:    pulumi.String("roles/bigquery.dataViewer"),
+			Member:  pulumi.String("serviceAccount:alpaca-cloudrun-sa@golang1212025.iam.gserviceaccount.com"), // placeholder
+		})
+		if err != nil {
+			return err
+		}
+		_ = bqViewer
+
+		bqJobUser, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding-bqJob", &projects.IAMMemberArgs{
+			Project: pulumi.String(project),
+			Role:    pulumi.String("roles/bigquery.jobUser"),
+			Member:  pulumi.String("serviceAccount:alpaca-cloudrun-sa@golang1212025.iam.gserviceaccount.com"), // placeholder
+		})
+		if err != nil {
+			return err
+		}
+		_ = bqJobUser
 
 		// -- Cloud Run v2 Service --
 		service, err := cloudrunv2.NewService(ctx, "alpaca-search", &cloudrunv2.ServiceArgs{
@@ -68,6 +88,10 @@ func main() {
 							&cloudrunv2.ServiceTemplateContainerEnvArgs{
 								Name:  pulumi.String("DATASET_ID"),
 								Value: pulumi.String("alpacaCentral"),
+							},
+							&cloudrunv2.ServiceTemplateContainerEnvArgs{
+								Name:  pulumi.String("GIN_MODE"),
+								Value: pulumi.String("release"),
 							},
 							&cloudrunv2.ServiceTemplateContainerEnvArgs{
 								Name:  pulumi.String("INDEX_ID"),
