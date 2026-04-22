@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/chukiagosoftware/alpaca/vertex"
@@ -48,16 +50,19 @@ func main() {
 	}
 	defer vsSvc.Close()
 
-	bq, err := vertex.NewBigQueryService(ctx, *config)
+	bq, err := NewBigQueryService(ctx, *config)
 
 	// Setup our http server with OpenTelemetry spans
 	r := gin.Default()
 	r.Use(CORSMiddleware())
 	r.Use(otelgin.Middleware("vertex-search"))
-	r.StaticFile("/", "vertex/search/index.html")
-	r.Static("/static", "vertex/search/static")
 
 	r.Use(timeoutMiddleware())
+
+	distDir := filepath.Join(".", "frontend-vite", "dist")
+	assetsDir := filepath.Join(distDir, "assets")
+
+	r.StaticFS("/assets/", http.Dir(assetsDir))
 
 	r.POST("/api/search", func(c *gin.Context) {
 		SearchHandler(c, config, vsSvc, bq)
@@ -70,6 +75,14 @@ func main() {
 	r.GET("/ping", func(c *gin.Context) {
 		// Return JSON response
 		Pong(c)
+	})
+
+	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "API endpoint not found"})
+			return
+		}
+		c.File(distDir + "/index.html")
 	})
 
 	log.Println("Starting server on :8080")

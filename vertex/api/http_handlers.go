@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,9 +15,9 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-func LocationSelectHandler(c *gin.Context, bq *vertex.BQ) {
+func LocationSelectHandler(c *gin.Context, bq *BQ) {
 
-	var locations []vertex.LocationGroup
+	var locations []LocationGroup
 
 	locations, err := bq.GetDistinctLocations(c)
 
@@ -36,6 +34,31 @@ func recordErrorMetric(c *gin.Context, errorType string) {
 	counter, _ := meter.Int64Counter("search.errors")
 	counter.Add(c.Request.Context(), 1, metric.WithAttributes(
 		attribute.String("error_type", errorType),
+	))
+}
+
+func recordLLMMetrics(c *gin.Context, model string, usage vertex.TokenUsage, success bool, isSafe bool) {
+	meter := otel.Meter("vertex-search")
+
+	// Track which model was used
+	modelCounter, _ := meter.Int64Counter("llm.model.usage")
+	modelCounter.Add(c.Request.Context(), 1, metric.WithAttributes(
+		attribute.String("model", model),
+		attribute.Bool("success", success),
+	))
+
+	if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+		tokenHist, _ := meter.Int64Histogram("llm.tokens")
+		tokenHist.Record(c.Request.Context(), int64(usage.PromptTokens),
+			metric.WithAttributes(attribute.String("type", "prompt"), attribute.String("model", model)))
+		tokenHist.Record(c.Request.Context(), int64(usage.CompletionTokens),
+			metric.WithAttributes(attribute.String("type", "completion"), attribute.String("model", model)))
+	}
+
+	completionCounter, _ := meter.Int64Counter("llm.completion.count")
+	completionCounter.Add(c.Request.Context(), 1, metric.WithAttributes(
+		attribute.Bool("success", success),
+		attribute.Bool("safe_query", isSafe),
 	))
 }
 
@@ -61,6 +84,13 @@ func buildSearchInput(form vertex.SearchForm, config *vertex.Config) vertex.Sear
 	if continent != "" {
 		input.Continent = continent
 	}
+
+	if form.LLMChoice != "" && strings.ToLower(strings.TrimSpace(form.LLMChoice)) != "auto" {
+		input.PreferredModel = form.LLMChoice
+	} else {
+		input.PreferredModel = config.PreferredModel
+	}
+
 	if form.Rating != "" {
 		if rating, err := strconv.Atoi(strings.TrimSpace(form.Rating)); err == nil && rating > 0 {
 			input.Rating = rating
@@ -82,7 +112,7 @@ func buildSearchInput(form vertex.SearchForm, config *vertex.Config) vertex.Sear
 	return input
 }
 
-func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSearchService, bq *vertex.BQ) {
+func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSearchService, bq *BQ) {
 
 	tracer := otel.Tracer("vertex-search")
 	ctx, span := tracer.Start(c.Request.Context(), "search-request")
@@ -108,15 +138,16 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 	safetyChan := make(chan bool, 1)
 	embedChan := make(chan []float32, 1)
 	vectorChan := make(chan []vertex.VectorResult, 1)
+	vectorCountChan := make(chan int, 1)
 	metadataChan := make(chan []map[string]any, 1)
-	completionChan := make(chan string, 1)
+	completionChan := make(chan vertex.CompletionResult, 1)
 
 	go func() {
 		start := time.Now()
 		_, safetySpan := tracer.Start(ctx, "safety-check")
 		defer safetySpan.End()
 
-		isSafe, err := vsSvc.CheckQuerySafety(ctx, *config, input.Question)
+		isSafe, err := vsSvc.CheckQuerySafety(ctx, input)
 		safetyTime = time.Since(start)
 
 		if err != nil || !isSafe {
@@ -151,6 +182,7 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 		embedding := <-embedChan
 		if embedding == nil {
 			vectorChan <- nil
+			vectorCountChan <- 0
 			return
 		}
 
@@ -161,13 +193,20 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 		searchSpan.End()
 		searchTime = time.Since(start)
 
+		count := 0
+		if results != nil {
+			count = len(results)
+		}
+
 		if err != nil {
 			recordErrorMetric(c, "vector_search_error")
 			log.Printf("Vector search error: %v", err)
 			vectorChan <- nil
+			vectorCountChan <- 0
 			return
 		}
 		vectorChan <- results
+		vectorCountChan <- count
 	}()
 
 	go func() {
@@ -196,7 +235,12 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 	go func() {
 		results := <-metadataChan
 		if results == nil {
-			completionChan <- "No relevant hotel reviews found."
+			completionChan <- vertex.CompletionResult{Content: "[]"}
+			return
+		}
+
+		if completionCtx.Err() != nil {
+			completionChan <- vertex.CompletionResult{Content: "[]"}
 			return
 		}
 
@@ -204,40 +248,57 @@ func SearchHandler(c *gin.Context, config *vertex.Config, vsSvc *vertex.VertexSe
 		_, compSpan := tracer.Start(completionCtx, "llm-completion")
 		defer compSpan.End()
 
-		completion, err := vsSvc.PromptCompletion(completionCtx, *config, input.Question, results)
+		completion, err := vsSvc.PromptCompletion(completionCtx, input, results)
 		completionTime = time.Since(start)
 
 		if err != nil {
 			log.Printf("Completion error: %v", err)
-			completionChan <- "Sorry, I could not generate a response."
+			completionChan <- vertex.CompletionResult{Content: "[]"}
 			return
 		}
 		completionChan <- completion
 	}()
 
 	isSafe := <-safetyChan
-	completion := <-completionChan
+	compResult := <-completionChan
 
+	var userMessage string
 	if !isSafe {
-		completion = "Your query was flagged as not relevant to hotel reviews. Please try a different question."
+		userMessage = "Your query was flagged as not relevant to hotel reviews. Please try a different question."
+		compResult = vertex.CompletionResult{Content: "Your query was flagged as not relevant to hotel reviews. Please try a different question."}
 	}
 
-	finalResults := []map[string]any{}
-	// We don't block on metadataChan again if safety already failed, but for timing we can read it safely
+	vectorCount := 0
 	select {
-	case finalResults = <-metadataChan:
+	case vectorCount = <-vectorCountChan:
 	default:
 	}
 
-	parsedReviews, parseErr := parseCompletionJSON(completion)
+	parsedReviews, parseErr := parseCompletionJSON(compResult.Content)
 	if parseErr != nil {
 		log.Printf("Failed to parse LLM JSON: %v", parseErr)
 		parsedReviews = []map[string]any{}
+		recordErrorMetric(c, "json_parse_error")
 	}
+
+	googleKey := config.GooglePlacesAPIKey
+	if googleKey == "" {
+		log.Println("Warning: GOOGLE_MAPS_API_KEY not set - maps/photos skipped")
+	} else {
+		for i := range parsedReviews {
+			enrichReviewWithGoogleMedia(&parsedReviews[i], googleKey)
+		}
+	}
+
+	recordLLMMetrics(c, compResult.Model, compResult.Usage, len(parsedReviews) > 0 || userMessage != "", isSafe)
+	recordVectorSearchMetrics(c, searchTime.Milliseconds(), vectorCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"completion":   parsedReviews,
-		"vector_count": len(finalResults),
+		"message":      userMessage,
+		"model":        compResult.Model,
+		"usage":        compResult.Usage,
+		"vector_count": vectorCount,
 		"safe_query":   isSafe,
 		"timings": gin.H{
 			"embedding_ms":      embedTime.Milliseconds(),
@@ -253,28 +314,4 @@ func Pong(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "pong",
 	})
-}
-
-func parseCompletionJSON(completionStr string) ([]map[string]any, error) {
-	trimmedSpace := strings.TrimSpace(completionStr)
-	// Remove markdown code blocks if they somehow appear
-	dirtyRegexp := regexp.MustCompile("(?s)^```(?:json)?\\s*|\\s*```$")
-	clean := dirtyRegexp.ReplaceAllString(trimmedSpace, "")
-
-	var err error
-	var reviews []map[string]any
-	if err = json.Unmarshal([]byte(clean), &reviews); err == nil {
-		log.Println("Successfully parsed LLM returned JSON")
-		return reviews, nil
-	}
-
-	log.Printf("Failed to unmarshal LLM returned JSON. Trying backtick removal %v\n", err)
-	noBackTick := strings.ReplaceAll(trimmedSpace, "```", "")
-	noFrontTick := strings.ReplaceAll(noBackTick, "json```", "")
-	if err = json.Unmarshal([]byte(noFrontTick), &reviews); err == nil {
-		log.Println("Successfully parsed LLM returned JSON after removing backticks")
-		return reviews, nil
-	}
-	log.Printf("Failed to parse LLM returned JSON after backtick removal: %v\n", err)
-	return nil, err
 }
