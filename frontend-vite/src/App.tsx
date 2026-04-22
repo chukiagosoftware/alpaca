@@ -3,7 +3,7 @@ import {MapPin, Search, TrendingUp} from 'lucide-react';
 
 // Update this to your API base URL
 // If same domain, use empty string. If different domain, use full URL
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = '';
 
 interface SearchResult {
     Hotel: string;
@@ -12,12 +12,18 @@ interface SearchResult {
     Rating: number;
     Distance: number;
     Address: string;
+    map_url?: string;
+    photo_thumb?: string;
+    photo_full?: string;
 }
 
 interface SearchApiResponse {
     completion: SearchResult[];
     vector_count: number;
     safe_query: boolean;
+    message?: string;
+    model?: string;
+    usage?: TokenUsage;
     timings?: {
         embedding_ms: number;
         vector_search_ms: number;
@@ -27,8 +33,15 @@ interface SearchApiResponse {
     };
 }
 
+interface TokenUsage {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens?: number;
+}
+
 export default function App() {
     const [searchQuery, setSearchQuery] = useState('quiet hotel with a good bar');
+    const [selectedModel, setSelectedModel] = useState('');
     const [selectedRegion, setSelectedRegion] = useState('');
     const [selectedCity, setSelectedCity] = useState('');
     const [selectedRating, setSelectedRating] = useState('');
@@ -39,6 +52,11 @@ export default function App() {
     const [apiStats, setApiStats] = useState<SearchApiResponse['timings'] | null>(null);
     const [vectorCount, setVectorCount] = useState(0);
     const [safeQuery, setSafeQuery] = useState(true);
+    const [modelUsed, setModelUsed] = useState('');
+    const [usage, setUsage] = useState<TokenUsage | null>(null);
+    const [userMessage, setUserMessage] = useState('');
+    const [selectedPhoto, setSelectedPhoto] = useState<string>('');
+
 
     // Fetch locations on component mount
     useEffect(() => {
@@ -72,11 +90,13 @@ export default function App() {
 
     const cities = selectedRegion ? locations[selectedRegion] || [] : [];
 
+    // @ts-ignore
     const handleSearch = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
 
         setLoading(true);
         setError('');
+        setUserMessage('');
 
         try {
             const params = new URLSearchParams();
@@ -84,6 +104,7 @@ export default function App() {
             if (selectedRegion) params.append('continent', selectedRegion);
             if (selectedCity) params.append('citycountry', selectedCity);
             if (selectedRating) params.append('rating', selectedRating);
+            if (selectedModel) params.append('llm', selectedModel);
 
             const url = `${API_BASE_URL}/api/search?${params.toString()}`;
             const response = await fetch(url, {
@@ -104,6 +125,9 @@ export default function App() {
             setVectorCount(data.vector_count ?? 0);
             setSafeQuery(Boolean(data.safe_query));
             setApiStats(data.timings ?? null);
+            setModelUsed(data.model ?? '');
+            setUsage(data.usage ?? null);
+            setUserMessage(data.message ?? '');
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : 'Unknown error';
             setError(`Search failed: ${errorMsg}`);
@@ -111,6 +135,9 @@ export default function App() {
             setVectorCount(0);
             setSafeQuery(true);
             setApiStats(null);
+            setModelUsed('');
+            setUsage(null);
+            setUserMessage('');
         } finally {
             setLoading(false);
         }
@@ -125,12 +152,12 @@ export default function App() {
     return (
         <div className="size-full flex flex-col bg-gray-50 p-6 gap-6">
             <div className="flex gap-6 flex-1 min-h-0">
-                {/* Left Side - Search Form */}
-                <div className="w-80 flex flex-col gap-6">
+                {/* Left Side - Search Form + Statistics */}
+                <div className="w-80 flex flex-col gap-6 overflow-auto">
                     <form onSubmit={handleSearch} className="bg-white rounded-lg shadow-sm p-6 flex flex-col gap-4">
                         <h2 className="flex items-center gap-2">
                             <Search className="w-5 h-5"/>
-                            Alpaca AI Hotel Search
+                            Hotel Search
                         </h2>
 
                         {error && (
@@ -151,7 +178,7 @@ export default function App() {
                         </div>
 
                         <div className="flex flex-col gap-2">
-                            <label className="text-sm text-gray-600">Continent</label>
+                            <label className="text-sm text-gray-600">Region</label>
                             <select
                                 value={selectedRegion}
                                 onChange={(e) => {
@@ -196,6 +223,20 @@ export default function App() {
                             </select>
                         </div>
 
+                        <div className="flex flex-col gap-2">
+                            <label className="text-sm text-gray-600">AI Model</label>
+                            <select
+                                value={selectedModel}
+                                onChange={(e) => setSelectedModel(e.target.value)}
+                                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="">Auto</option>
+                                <option value="grok">Grok</option>
+                                <option value="gemini">Gemini</option>
+                                <option disabled value="openai">OpenAI</option>
+                            </select>
+                        </div>
+
                         <button
                             type="submit"
                             disabled={loading}
@@ -205,117 +246,196 @@ export default function App() {
                         </button>
                     </form>
 
-                    {/* Statistics Table */}
+                    {/* Statistics - 3 grouped sections */}
                     <div className="bg-white rounded-lg shadow-sm p-6">
                         <h2 className="mb-4 flex items-center gap-2">
                             <TrendingUp className="w-5 h-5"/>
                             Statistics
                         </h2>
-                        <table className="w-full text-sm">
-                            <tbody className="divide-y divide-gray-200">
-                            <tr>
-                                <td className="py-2 text-gray-600">Average Rating</td>
-                                <td className="py-2 text-right">{avgRating} ⭐</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Embedding ms</td>
-                                <td className="py-2 text-right">{apiStats?.embedding_ms ?? 0}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">LLM Completion ms</td>
-                                <td className="py-2 text-right">{apiStats?.llm_completion_ms ?? 0}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Metadata ms</td>
-                                <td className="py-2 text-right">{apiStats?.metadata_ms ?? 0}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Safe Query</td>
-                                <td className="py-2 text-right">{safeQuery ? 'Yes' : 'No'}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Total Results</td>
-                                <td className="py-2 text-right">{totalReviews}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Unique Cities</td>
-                                <td className="py-2 text-right">{uniqueCities}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Vector Count</td>
-                                <td className="py-2 text-right">{vectorCount}</td>
-                            </tr>
-                            <tr>
-                                <td className="py-2 text-gray-600">Vector Search ms</td>
-                                <td className="py-2 text-right">{apiStats?.vector_search_ms ?? 0}</td>
-                            </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* Right Side - Search Results (Full Height) */}
-                <div className="flex-1 flex flex-col gap-6">
-                    <div className="flex-1 bg-white rounded-lg shadow-sm p-6 overflow-auto">
-                        <h2 className="mb-4">Search Results ({searchResults.length})</h2>
-
-                        {loading ? (
-                            <div className="flex items-center justify-center py-12 text-gray-500">
-                                Loading...
-                            </div>
-                        ) : searchResults.length === 0 ? (
-                            <div className="flex items-center justify-center py-12 text-gray-500">
-                                No results found. Try adjusting your search criteria.
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-3">
-                                {searchResults.map((result, index) => (
-                                    <div
-                                        key={`${result.Hotel}-${index}`}
-                                        className="p-4 border border-gray-200 rounded-lg hover:border-blue-400 transition-colors"
-                                    >
-                                        <div className="flex justify-between items-start mb-2">
-                                            <h3 className="text-lg">{result.Hotel}</h3>
-                                            <div className="flex items-center gap-1">
-                                                {'⭐'.repeat(Math.round(result.Rating))}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-1 text-sm text-gray-600 mb-2">
-                                            <MapPin className="w-4 h-4"/>
-                                            {result.City}
-                                        </div>
-                                        <p className="text-sm text-gray-700 mb-2">{result.Review}</p>
-                                        <div className="flex items-center justify-between gap-3 text-sm text-gray-500">
-    <span
-        className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">
-        <TrendingUp className="w-3.5 h-3.5"/>
-        {(1 - result.Distance).toFixed(3)} relevance
-    </span>
-                                            <span className="truncate">{result.Address}</span>
-                                        </div>
-                                    </div>
-                                ))}
+                        {userMessage && (
+                            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-700 text-sm">
+                                {userMessage}
                             </div>
                         )}
-                    </div>
 
-                    {/* Map & Metadata */}
-                    <div className="h-48 bg-white rounded-lg shadow-sm p-4">
-                        <h3 className="mb-2 flex items-center gap-2 text-sm">
-                            <MapPin className="w-4 h-4"/>
-                            Location Map
-                        </h3>
-                        <div
-                            className="h-32 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500 text-sm">
-                            <div className="text-center">
-                                <MapPin className="w-6 h-6 mx-auto mb-2"/>
-                                <div>Showing {searchResults.length} results across {uniqueCities} cities</div>
-                                <div className="text-sm mt-1">Continent: {selectedRegion || 'All'}</div>
-                            </div>
+                        <div className="mb-6">
+                            <p className="text-xs font-medium text-gray-500 mb-2">PERFORMANCE</p>
+                            <table className="w-full text-sm">
+                                <tbody className="divide-y divide-gray-200">
+                                <tr>
+                                    <td className="py-2 text-gray-600">Model</td>
+                                    <td className="py-2 text-right font-medium">{modelUsed || '—'}</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 text-gray-600">Query Embedding</td>
+                                    <td className="py-2 text-right">{apiStats?.embedding_ms ?? 0} ms</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 text-gray-600">LLM Prompt</td>
+                                    <td className="py-2 text-right">{apiStats?.llm_completion_ms ?? 0} ms</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 text-gray-600">Vector Search</td>
+                                    <td className="py-2 text-right">{apiStats?.vector_search_ms ?? 0} ms</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 text-gray-600">Vector Metadata</td>
+                                    <td className="py-2 text-right">{apiStats?.metadata_ms ?? 0} ms</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="mb-6">
+                            <p className="text-xs font-medium text-gray-500 mb-2">RESULTS</p>
+                            <table className="w-full text-sm">
+                                <tbody className="divide-y divide-gray-200">
+                                <tr>
+                                    <td className="py-2 text-gray-600">Average Rating</td>
+                                    <td className="py-2 text-right">{avgRating} ⭐</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 text-gray-600">Safe Query</td>
+                                    <td className="py-2 text-right">{safeQuery ? 'Yes' : 'No'}</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 text-gray-600">Total Results</td>
+                                    <td className="py-2 text-right">{totalReviews}</td>
+                                </tr>
+                                <tr>
+                                    <td className="py-2 text-gray-600">Unique Cities</td>
+                                    <td className="py-2 text-right">{uniqueCities}</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div>
+                            <p className="text-xs font-medium text-gray-500 mb-2">USAGE</p>
+                            <table className="w-full text-sm">
+                                <tbody className="divide-y divide-gray-200">
+                                {usage && (
+                                    <>
+                                        <tr>
+                                            <td className="py-2 text-gray-600">Prompt Tokens</td>
+                                            <td className="py-2 text-right">{usage.prompt_tokens}</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="py-2 text-gray-600">Completion Tokens</td>
+                                            <td className="py-2 text-right">{usage.completion_tokens}</td>
+                                        </tr>
+                                        {usage.total_tokens && (
+                                            <tr>
+                                                <td className="py-2 text-gray-600">Total Tokens</td>
+                                                <td className="py-2 text-right">{usage.total_tokens}</td>
+                                            </tr>
+                                        )}
+                                    </>
+                                )}
+                                <tr>
+                                    <td className="py-2 text-gray-600">Vector Count</td>
+                                    <td className="py-2 text-right">{vectorCount}</td>
+                                </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
+
+                {/* Right Panel - Search Results (always visible) */}
+                <div className="flex-1 flex flex-col min-h-0">
+                    <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-gray-800">
+                        <Search className="w-5 h-5" />
+                        Results
+                    </h2>
+
+                    <div className="flex-1 overflow-auto space-y-6 pr-2">
+                        {searchResults.length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+                                <div className="text-center">
+                                    <p className="text-lg mb-1">Find your next Hotel!</p>
+                                    <p className="text-sm">Enter a query and click Search to get started</p>
+                                </div>
+                            </div>
+                        ) : searchResults.map((result, index) => (
+                                <div
+                                    key={index}
+                                    className="p-6 border border-gray-200 rounded-2xl hover:border-blue-300 transition-all bg-white"
+                                >
+                                    {/* Hotel Name + Stars */}
+                                    <div className="flex justify-between items-start mb-5">
+                                        <h3 className="text-xl font-semibold">{result.Hotel}</h3>
+                                        <div className="text-3xl">{'⭐'.repeat(Math.round(result.Rating))}</div>
+                                    </div>
+
+                                    <div className="flex gap-6">
+                                        {/* Left Column: Address + Similarity */}
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-1 text-sm text-gray-600 mb-3">
+                                                <MapPin className="w-4 h-4 flex-shrink-0" />
+                                                {result.Address} • {result.City}
+                                            </div>
+
+                                            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-sm">
+                                                <TrendingUp className="w-4 h-4" />
+                                                Similarity: {(result.Distance * 100).toFixed(1)}%
+                                            </div>
+                                        </div>
+
+                                        {/* Right Column: Map (only if exists) + Photo */}
+                                        <div className="flex gap-4">
+                                            {result.map_url && (
+                                                <div className="w-36 flex-shrink-0">
+                                                    <a
+                                                        href={result.map_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="block h-28 border border-dashed border-gray-300 hover:border-red-300 rounded-2xl p-3 transition-colors group text-center"
+                                                    >
+                                                        <MapPin className="w-7 h-7 text-red-500 mx-auto mb-2" />
+                                                        <p className="text-xs font-medium text-gray-700 group-hover:text-red-600">
+                                                            View on map
+                                                        </p>
+                                                    </a>
+                                                </div>
+                                            )}
+
+                                            {result.photo_thumb && (
+                                                <div className="flex-shrink-0">
+                                                    <img
+                                                        src={result.photo_thumb}
+                                                        alt="Hotel photo"
+                                                        className="w-28 h-28 object-cover rounded-2xl shadow-md cursor-pointer hover:scale-105 transition-transform"
+                                                        onClick={() => setSelectedPhoto(result.photo_full || result.photo_thumb!)}
+                                                    />
+                                                    <p className="text-center text-[10px] text-gray-400 mt-2">enlarge</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Review Text */}
+                                    <p className="text-gray-700 leading-relaxed mt-6">{result.Review}</p>
+                                </div>
+                            ))}
+                    </div>
+                </div>
             </div>
+
+            {/* Photo Modal */}
+            {selectedPhoto && (
+                <div
+                    className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+                    onClick={() => setSelectedPhoto('')}
+                >
+                    <img
+                        src={selectedPhoto}
+                        alt="Enlarged photo"
+                        className="max-h-[90vh] max-w-[90vw] rounded-2xl shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
         </div>
     );
 }
