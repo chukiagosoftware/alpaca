@@ -16,7 +16,7 @@ func main() {
 		// Non-sensitive values are hardcoded from config.yaml
 		project := cfg.Require("gcpProjectID")
 		region := cfg.Require("region")
-		image := cfg.Require("image")
+		image := cfg.Require("image") + ":" + cfg.Require("imageTag")
 		endpointPublicDomain := cfg.Require("endpointPublicDomainName")
 		endpointID := cfg.Require("endpointID")
 		deployedIndexID := cfg.Require("deployedIndexID")
