@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/cloudrun"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/cloudrunv2"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/projects"
@@ -22,22 +24,23 @@ func main() {
 		deployedIndexID := cfg.Require("deployedIndexID")
 		indexID := cfg.Require("indexID")
 		CORSAllowedOrigins := cfg.Require("CORSAllowedOrigins")
+		serviceAccount := cfg.Require("serviceAccount")
 
 		// -- Service Account Vertex permission
-		sa, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding", &projects.IAMMemberArgs{
+		vectorViewer, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-vector", &projects.IAMMemberArgs{
 			Project: pulumi.String(project),
-			Role:    pulumi.String("roles/vectorsearch.viewer"),                                               //aiplatform.user
-			Member:  pulumi.String("serviceAccount:alpaca-cloudrun-sa@golang1212025.iam.gserviceaccount.com"), // placeholder
+			Role:    pulumi.String("roles/vectorsearch.viewer"), //aiplatform.user
+			Member:  pulumi.String(fmt.Sprintf("serviceAccount:%s", serviceAccount)),
 		})
 		if err != nil {
 			return err
 		}
-		_ = sa
+		_ = vectorViewer
 
 		bqViewer, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding-bq", &projects.IAMMemberArgs{
 			Project: pulumi.String(project),
 			Role:    pulumi.String("roles/bigquery.dataViewer"),
-			Member:  pulumi.String("serviceAccount:alpaca-cloudrun-sa@golang1212025.iam.gserviceaccount.com"), // placeholder
+			Member:  pulumi.String(fmt.Sprintf("serviceAccount:%s", serviceAccount)),
 		})
 		if err != nil {
 			return err
@@ -47,12 +50,22 @@ func main() {
 		bqJobUser, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding-bqJob", &projects.IAMMemberArgs{
 			Project: pulumi.String(project),
 			Role:    pulumi.String("roles/bigquery.jobUser"),
-			Member:  pulumi.String("serviceAccount:alpaca-cloudrun-sa@golang1212025.iam.gserviceaccount.com"), // placeholder
+			Member:  pulumi.String(fmt.Sprintf("serviceAccount:%s", serviceAccount)),
 		})
 		if err != nil {
 			return err
 		}
 		_ = bqJobUser
+
+		vertexAI, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding-vertex", &projects.IAMMemberArgs{
+			Project: pulumi.String(project),
+			Role:    pulumi.String("roles/aiplatform.user"),
+			Member:  pulumi.String(fmt.Sprintf("serviceAccount:%s", serviceAccount)),
+		})
+		if err != nil {
+			return err
+		}
+		_ = vertexAI
 
 		// -- Cloud Run v2 Service --
 		service, err := cloudrunv2.NewService(ctx, "alpaca-search", &cloudrunv2.ServiceArgs{
@@ -66,6 +79,7 @@ func main() {
 					MinInstanceCount: pulumi.Int(0),
 					MaxInstanceCount: pulumi.Int(2),
 				},
+				ServiceAccount: pulumi.String(serviceAccount),
 				Containers: cloudrunv2.ServiceTemplateContainerArray{
 					&cloudrunv2.ServiceTemplateContainerArgs{
 						Image: pulumi.String(image),
