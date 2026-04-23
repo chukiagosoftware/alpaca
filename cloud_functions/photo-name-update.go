@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"google.golang.org/api/iterator"
@@ -94,11 +95,12 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 		JOIN %s h ON h.name = e.hotel_name
 		JOIN %s r ON h.source_hotel_id = r.hotel_id
 		WHERE r.hotel_id IS NOT NULL AND r.hotel_id != '' AND r.source = 'google'
+		AND r.photo_name = e.photo_name
 	`, tableEmbed, tableHotels, tableReviews)
 
 	it, err := bq.ExecuteQuery(ctx, sql, nil)
 	if err != nil {
-		return fmt.Errorf("failed to query hotels: %w", err)
+		return fmt.Errorf("failed to query hotels: %w\n", err)
 	}
 
 	type Hotel struct {
@@ -108,6 +110,7 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 	}
 
 	var hotels []Hotel
+	skipped := 0
 	for {
 		var row map[string]bigquery.Value
 		err := it.Next(&row)
@@ -117,20 +120,26 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to read hotel row: %w", err)
 		}
+		if row["photo_name"] == nil || row["photo_name"] == "" {
+			//log.Printf("Skipping hotel %s (%s) - No photo name found\n", fmt.Sprintf("%v", row["hotel_name"]), fmt.Sprintf("%v", row["hotel_id"]))
+			skipped++
+			continue
+		}
 		hotels = append(hotels, Hotel{
 			Name:     fmt.Sprintf("%v", row["hotel_name"]),
 			ID:       fmt.Sprintf("%v", row["hotel_id"]),
 			OldPhoto: fmt.Sprintf("%v", row["photo_name"]),
 		})
-		log.Printf("Hotel: %s, ID: %s, OldPhoto: %s", hotels[len(hotels)-1].Name, hotels[len(hotels)-1].ID, hotels[len(hotels)-1].OldPhoto)
+		//log.Printf("Hotel: %s, ID: %s, OldPhoto: %s\n", hotels[len(hotels)-1].Name, hotels[len(hotels)-1].ID, hotels[len(hotels)-1].OldPhoto[:20])
 	}
+	log.Printf("Found %d hotels to refresh. Skipped: %d\n", len(hotels), skipped)
 
 	// For each hotel, fetch new photo from Google Places API
-	for _, hotel := range hotels {
+	for i, hotel := range hotels {
 		url := fmt.Sprintf("https://places.googleapis.com/v1/places/%s", hotel.ID)
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
-			log.Printf("failed to create request for %s: %v\n", hotel.Name, err)
+			log.Printf("failed to create request for %d %s: %v\n", i, hotel.Name, err)
 			continue
 		}
 		req.Header.Set("X-Goog-Api-Key", apiKey)
@@ -138,25 +147,25 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			log.Printf("failed to call API for %s: %v\n", hotel.Name, err)
+			log.Printf("failed to call API for %d %s: %v\n", i, hotel.Name, err)
 			continue
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
-			log.Printf("API returned %d for %s\n", resp.StatusCode, hotel.Name)
+			log.Printf("API returned %d for %d %s\n", resp.StatusCode, i, hotel.Name)
 			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			log.Printf("failed to read response for %s: %v", hotel.Name, err)
+			log.Printf("failed to read response for %s (%d): %v", hotel.Name, i, err)
 			continue
 		}
 
 		var placesResp PlacesResponse
 		if err := json.Unmarshal(body, &placesResp); err != nil {
-			log.Printf("failed to unmarshal response for %s: %v\n", hotel.Name, err)
+			log.Printf("failed to unmarshal response for %s (%d): %v\n", hotel.Name, i, err)
 			continue
 		}
 
@@ -165,7 +174,7 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 			newPhotoName = placesResp.Photos[0].Name
 		}
 
-		log.Printf("New photo for %s(%s): %s.  Old photo: %s\n", hotel.Name, hotel.ID, newPhotoName, hotel.OldPhoto)
+		log.Printf("New photo for %d %s(%s): %s.  Old photo: %s\n", i, hotel.Name, hotel.ID, newPhotoName[len(newPhotoName)-20:], hotel.OldPhoto[len(hotel.OldPhoto)-20:])
 		// Update reviews and embeddings
 		updateReviews := fmt.Sprintf(`UPDATE %s r SET photo_name = @photo 
           WHERE hotel_id = @hotel_id`,
@@ -196,59 +205,16 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 			continue
 		}
 
-		log.Printf("Updated photo for %s", hotel.Name)
-	}
-
-	// Verify
-
-	verifySQL := fmt.Sprintf(`
-    SELECT r.hotel_name, r.hotel_id, r.photo_name
-    FROM %s r
-    WHERE r.hotel_id IN UNNEST(@hotel_ids) AND r.source = 'google'
-`, tableReviews) // Use reviews since it's the primary table with hotel_id
-
-	var hotelIDs []string
-	for _, h := range hotels {
-		hotelIDs = append(hotelIDs, h.ID)
-	}
-
-	qVerify := bq.BQClient.Query(verifySQL)
-	qVerify.Parameters = []bigquery.QueryParameter{
-		{Name: "hotel_ids", Value: hotelIDs},
-	}
-	itVerify, err := qVerify.Read(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to run verification query: %w", err)
-	}
-
-	updatedHotels := make(map[string]string) // hotel_id -> new photo_name
-	for {
-		var row map[string]bigquery.Value
-		err := itVerify.Next(&row)
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read verification row: %w", err)
-		}
-		id := fmt.Sprintf("%v", row["hotel_id"])
-		photo := fmt.Sprintf("%v", row["photo_name"])
-		updatedHotels[id] = photo
-	}
-
-	// Compare and log results
-	for _, hotel := range hotels {
-		newPhoto, exists := updatedHotels[hotel.ID]
-		if !exists {
-			log.Printf("Verification failed: No updated data found for hotel %s (%s)", hotel.Name, hotel.ID)
-			continue
-		}
-		if newPhoto != hotel.OldPhoto {
-			log.Printf("SUCCESS: Photo updated for %s (%s) - Old: %s, New: %s", hotel.Name, hotel.ID, hotel.OldPhoto, newPhoto)
+		log.Printf("Updated photo for %d %s", i, hotel.Name)
+		if (i+1)%10 == 0 {
+			log.Printf("Sleeping for 10 seconds to avoid rate limiting\n")
+			time.Sleep(30 * time.Second)
 		} else {
-			log.Printf("NO CHANGE: Photo for %s (%s) remains %s (check if API returned new data or if update conditions matched)", hotel.Name, hotel.ID, hotel.OldPhoto)
+			time.Sleep(10 * time.Second)
 		}
 	}
+
+	log.Printf("Refresh completed for %d hotels\n", len(hotels))
 
 	return nil
 }
