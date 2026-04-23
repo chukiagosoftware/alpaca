@@ -1,0 +1,18 @@
+# --substitutions=COMMIT_SHA=$(git rev-parse HEAD)
+#  gcloud builds submit --config=cloudbuild.yaml . --verbosity=debug --region=us-central1 --substitutions=COMMIT_SHA=$(git rev-parse HEAD)
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/golang1212025/alpaca-search/alpaca-search:$COMMIT_SHA'
+      - '--platform=linux/amd64'
+      - '.'
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/golang1212025/alpaca-search/alpaca-search:$COMMIT_SHA']
+serviceAccount: 'projects/golang1212025/serviceAccounts/vertex-express@golang1212025.iam.gserviceaccount.com'
+images:
+  - 'us-central1-docker.pkg.dev/golang1212025/alpaca-search/alpaca-search:$COMMIT_SHA'
+timeout: '600s'  # 10 min max, adjust if needed
+options:
+  logging: CLOUD_LOGGING_ONLY
