@@ -21,6 +21,7 @@ func main() {
 		endpointID := cfg.Require("endpointID")
 		deployedIndexID := cfg.Require("deployedIndexID")
 		indexID := cfg.Require("indexID")
+		CORSAllowedOrigins := cfg.Require("CORSAllowedOrigins")
 
 		// -- Service Account Vertex permission
 		sa, err := projects.NewIAMMember(ctx, "alpaca-cloudrun-sa-binding", &projects.IAMMemberArgs{
@@ -92,6 +93,9 @@ func main() {
 							&cloudrunv2.ServiceTemplateContainerEnvArgs{
 								Name:  pulumi.String("GIN_MODE"),
 								Value: pulumi.String("release"),
+							}, &cloudrunv2.ServiceTemplateContainerEnvArgs{
+								Name:  pulumi.String("cors_allowed_origins"),
+								Value: pulumi.String(CORSAllowedOrigins),
 							},
 							&cloudrunv2.ServiceTemplateContainerEnvArgs{
 								Name:  pulumi.String("INDEX_ID"),
