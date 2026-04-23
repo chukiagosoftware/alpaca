@@ -54,7 +54,7 @@ func main() {
 
 	// Setup our http server with OpenTelemetry spans
 	r := gin.Default()
-	r.Use(CORSMiddleware())
+	r.Use(CORSMiddleware(*config))
 	r.Use(otelgin.Middleware("vertex-search"))
 
 	r.Use(timeoutMiddleware())

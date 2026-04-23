@@ -30,6 +30,7 @@ type Config struct {
 	OpenAIAPIKey                 string `mapstructure:"openai_api_key"`
 	OpenAIModel                  string `mapstructure:"openai_model"`
 	GooglePlacesAPIKey           string `mapstructure:"google_places_api_key"`
+	CORSAllowedOrigins           string `mapstructure:"cors_allowed_origins"`
 }
 
 func LoadConfig() (*Config, error) {

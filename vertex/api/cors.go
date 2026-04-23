@@ -1,13 +1,16 @@
 package main
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+
+	"github.com/chukiagosoftware/alpaca/vertex"
 )
 
-func CORSMiddleware() gin.HandlerFunc {
+func CORSMiddleware(appConfig vertex.Config) gin.HandlerFunc {
 	config := cors.DefaultConfig()
 
 	if gin.Mode() == gin.DebugMode {
@@ -15,9 +18,9 @@ func CORSMiddleware() gin.HandlerFunc {
 		config.AllowOrigins = []string{"http://localhost:5173", "http://127.0.0.1:5173"}
 		config.AllowCredentials = true
 	} else {
-		// Production - much more restrictive
-		// If serving built frontend from same origin, you can even disable CORS here
-		config.AllowOrigins = []string{} // Add your real domain(s) if needed
+		// Production
+		origins := strings.Split(appConfig.CORSAllowedOrigins, ",")
+		config.AllowOrigins = origins
 		config.AllowCredentials = false
 	}
 
