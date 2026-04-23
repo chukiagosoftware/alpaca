@@ -14,18 +14,22 @@ RUN npm run build
 FROM golang:1.26-alpine AS builder
 
 WORKDIR /alpaca
+ARG TARGETPLATFORM=linux/amd64
 
 # Copy Go dependency files first (caching)
 COPY vertex/api/go.mod vertex/api/go.sum ./vertex/api/
 COPY go.mod go.sum ./
-RUN cd vertex/api && go mod download
+RUN go mod download && cd vertex/api && go mod download
 
-# Copy Go source code
 COPY vertex/api ./vertex/api
 COPY vertex/config.go vertex/llm_completion.go vertex/llm_router.go vertex/openTelemetry.go vertex/searchservice.go vertex/vector_search.go ./vertex/
 
 # Build the statically linked binary
-RUN cd vertex/api && CGO_ENABLED=0 GOOS=linux go build -o /search .
+RUN cd vertex/api && \
+    CGO_ENABLED=0 GOOS=linux \
+    GOARCH=$(echo $TARGETPLATFORM | cut -d'/' -f2) \
+    GOAMD64=$(if [ "$TARGETPLATFORM" = "linux/amd64" ]; then echo "v1"; else echo "v8"; fi) \
+    go build -o /search .
 
 # Final runtime stage
 FROM alpine:latest

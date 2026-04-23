@@ -1,0 +1,10 @@
+SQL/
+ta_review_download_statistics/
+*.db
+pulumi*
+hotelReviewSaved/
+logs/
+dbt/
+scraping/
+.git/
+.idea/
