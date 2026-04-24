@@ -1,10 +1,3 @@
-//module example.com/p
-//
-//require (
-//google.golang.org/api v0.271.0
-//cloud.google.com/go/bigquery v1.74.0
-//)
-
 package main
 
 import (
@@ -15,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -27,6 +21,7 @@ var hotels = "bigHotels"
 var reviews = "bigReviews"
 var project = "golang1212025"
 var dataset = "alpacaCentral"
+var places_signature = os.Getenv("GOOGLE_PLACES_SIGNATURE")
 
 type BQ struct {
 	BQClient  *bigquery.Client
@@ -38,6 +33,12 @@ type PlacesResponse struct {
 	Photos []struct {
 		Name string `json:"name"`
 	} `json:"photos"`
+}
+
+type Hotel struct {
+	Name     string
+	ID       string
+	OldPhoto string
 }
 
 func (bq *BQ) ExecuteQuery(ctx context.Context, query string, params []bigquery.QueryParameter) (*bigquery.RowIterator, error) {
@@ -103,14 +104,11 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 		return fmt.Errorf("failed to query hotels: %w\n", err)
 	}
 
-	type Hotel struct {
-		Name     string
-		ID       string
-		OldPhoto string
-	}
-
 	var hotels []Hotel
+	var hotelID = make(map[string]bool)
+	var newPhotos = make(map[string]string)
 	skipped := 0
+	skippedDuplicateHotels := 0
 	for {
 		var row map[string]bigquery.Value
 		err := it.Next(&row)
@@ -125,6 +123,15 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 			skipped++
 			continue
 		}
+
+		hotelIDString := fmt.Sprintf("%v", row["hotel_id"])
+		if _, exists := hotelID[hotelIDString]; exists {
+			log.Println("Skipping duplicate hotel_id")
+			skippedDuplicateHotels++
+			continue
+		}
+
+		hotelID[hotelIDString] = true
 		hotels = append(hotels, Hotel{
 			Name:     fmt.Sprintf("%v", row["hotel_name"]),
 			ID:       fmt.Sprintf("%v", row["hotel_id"]),
@@ -132,91 +139,130 @@ func (bq *BQ) RefreshPhotoNames(ctx context.Context) error {
 		})
 		//log.Printf("Hotel: %s, ID: %s, OldPhoto: %s\n", hotels[len(hotels)-1].Name, hotels[len(hotels)-1].ID, hotels[len(hotels)-1].OldPhoto[:20])
 	}
-	log.Printf("Found %d hotels to refresh. Skipped: %d\n", len(hotels), skipped)
+
+	log.Printf("Found %d hotels to refresh. Skipped: %d empty photos and %d duplicate hotels\n", len(hotels), skipped, skippedDuplicateHotels)
 
 	// For each hotel, fetch new photo from Google Places API
-	for i, hotel := range hotels {
-		url := fmt.Sprintf("https://places.googleapis.com/v1/places/%s", hotel.ID)
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	for _, hotel := range hotels {
+
+		placeResp, err := googlePlacesQuery(ctx, hotel, places_signature)
+
 		if err != nil {
-			log.Printf("failed to create request for %d %s: %v\n", i, hotel.Name, err)
+			log.Printf("Failed to get place for hotel: %v", err)
 			continue
 		}
-		req.Header.Set("X-Goog-Api-Key", apiKey)
-		req.Header.Set("X-Goog-FieldMask", "id,photos")
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			log.Printf("failed to call API for %d %s: %v\n", i, hotel.Name, err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			log.Printf("API returned %d for %d %s\n", resp.StatusCode, i, hotel.Name)
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Printf("failed to read response for %s (%d): %v", hotel.Name, i, err)
-			continue
-		}
-
-		var placesResp PlacesResponse
-		if err := json.Unmarshal(body, &placesResp); err != nil {
-			log.Printf("failed to unmarshal response for %s (%d): %v\n", hotel.Name, i, err)
-			continue
-		}
+		time.Sleep(100 * time.Millisecond)
 
 		var newPhotoName string
-		if len(placesResp.Photos) > 0 {
-			newPhotoName = placesResp.Photos[0].Name
-		}
 
-		log.Printf("New photo for %d %s(%s): %s.  Old photo: %s\n", i, hotel.Name, hotel.ID, newPhotoName[len(newPhotoName)-20:], hotel.OldPhoto[len(hotel.OldPhoto)-20:])
-		// Update reviews and embeddings
-		updateReviews := fmt.Sprintf(`UPDATE %s r SET photo_name = @photo 
-          WHERE hotel_id = @hotel_id`,
-			tableReviews)
+		if len(placeResp.Photos) > 0 {
+			newPhotoName = placeResp.Photos[0].Name
+		}
+		newPhotos[hotel.Name] = newPhotoName
+	}
+
+	// Batch updates to reduce too many DML BigQuery throttling
+	batchSize := 500
+	for i := 0; i < len(hotels); i += batchSize {
+		end := i + batchSize
+		if end > len(hotels) {
+			end = len(hotels)
+		}
+		batch := hotels[i:end]
+
+		var hotelNames []string
+		var hotelIDs []string
+		caseReviews := "CASE "
+		caseEmbed := "CASE "
+		for _, h := range batch {
+			if newPhoto, ok := newPhotos[h.Name]; ok && newPhoto != "" {
+				hotelNames = append(hotelNames, fmt.Sprintf("'%s'", strings.ReplaceAll(h.Name, "'", "\\'"))) // Escape quotes
+				hotelIDs = append(hotelIDs, fmt.Sprintf("'%s'", h.ID))
+				caseReviews += fmt.Sprintf("WHEN hotel_id = '%s' THEN '%s' ", h.ID, newPhoto)
+				caseEmbed += fmt.Sprintf("WHEN hotel_name = '%s' THEN '%s' ", strings.ReplaceAll(h.Name, "'", "\\'"), newPhoto)
+			}
+		}
+		caseReviews += "END"
+		caseEmbed += "END"
+		inNames := strings.Join(hotelNames, ", ")
+		inIDs := strings.Join(hotelIDs, ", ")
+
+		// Batch update reviews
+		updateReviews := fmt.Sprintf("UPDATE %s SET photo_name = %s WHERE hotel_id IN (%s)", tableReviews, caseReviews, inIDs)
+		log.Println(updateReviews)
 		q := bq.BQClient.Query(updateReviews)
-		q.Parameters = []bigquery.QueryParameter{
-			{Name: "photo", Value: newPhotoName},
-			{Name: "hotel_id", Value: hotel.ID},
-		}
-		_, err = q.Run(ctx)
+		job, err := q.Run(ctx)
 		if err != nil {
-			log.Printf("failed to update reviews for %s(%s): %v", hotel.Name, hotel.ID, err)
-			continue
-		}
-
-		// Update embeddings table
-		updateEmbed := fmt.Sprintf(`UPDATE %s e SET e.photo_name = @photo 
-          WHERE hotel_name = @hotel_name`,
-			tableEmbed)
-		q2 := bq.BQClient.Query(updateEmbed)
-		q2.Parameters = []bigquery.QueryParameter{
-			{Name: "photo", Value: newPhotoName},
-			{Name: "hotel_name", Value: hotel.Name},
-		}
-		_, err = q2.Run(ctx)
-		if err != nil {
-			log.Printf("failed to update embeddings for %s: %v", hotel.Name, err)
-			continue
-		}
-
-		log.Printf("Updated photo for %d %s", i, hotel.Name)
-		if (i+1)%10 == 0 {
-			log.Printf("Sleeping for 10 seconds to avoid rate limiting\n")
-			time.Sleep(30 * time.Second)
+			log.Printf("Failed to run batch update reviews: %v", err)
 		} else {
-			time.Sleep(10 * time.Second)
+			log.Printf("Batch updated reviews for %d hotels, job ID: %s", len(batch), job.ID())
 		}
+
+		// Batch update embeddings
+		updateEmbed := fmt.Sprintf("UPDATE %s SET photo_name = %s WHERE hotel_name IN (%s)", tableEmbed, caseEmbed, inNames)
+		log.Println(updateEmbed)
+		q2 := bq.BQClient.Query(updateEmbed)
+		job2, err := q2.Run(ctx)
+		if err != nil {
+			log.Printf("Failed to run batch update embeddings: %v", err)
+		} else {
+			log.Printf("Batch updated embeddings for %d hotels, job ID: %s", len(batch), job2.ID())
+		}
+
+		time.Sleep(10 * time.Second) // Throttle between batches
 	}
 
 	log.Printf("Refresh completed for %d hotels\n", len(hotels))
 
 	return nil
+}
+
+func googlePlacesQuery(ctx context.Context, hotel Hotel, placesSignature string) (PlacesResponse, error) {
+
+	url := fmt.Sprintf("https://places.googleapis.com/v1/places/%s", hotel.ID)
+	log.Println("URL:", url)
+
+	//signedURL, err := google_places.SignURL(url, placesSignature)
+	//log.Println("signedURL:", signedURL)
+
+	//if err != nil {
+	//	log.Printf("Error signing URL: %v", err)
+	//	return PlacesResponse{}, err
+	//}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		log.Printf("failed to create request for %s: %v\n", hotel.Name, err)
+		return PlacesResponse{}, err
+	}
+
+	req.Header.Set("X-Goog-Api-Key", apiKey)
+	req.Header.Set("X-Goog-FieldMask", "id,photos")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("failed to call API for %s: %v\n", hotel.Name, err)
+		return PlacesResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Printf("API returned %d for %s\n", resp.StatusCode, hotel.Name)
+		return PlacesResponse{}, err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("failed to read response for %s: %v", hotel.Name, err)
+		return PlacesResponse{}, err
+	}
+
+	var placesResp PlacesResponse
+	if err := json.Unmarshal(body, &placesResp); err != nil {
+		log.Printf("failed to unmarshal response for %s: %v\n", hotel.Name, err)
+		return PlacesResponse{}, err
+	}
+	return placesResp, nil
 }
 
 func main() {
